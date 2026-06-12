@@ -226,16 +226,27 @@ class InventoryRepository:
             row = conn.execute(
                 text(
                     f"""
-                    select coalesce("{column}", '未归属') as name,
-                           sum(case
-                               when "备货预警" = '缺货预警' then 100
-                               when "备货预警" = '限制备货' then 60
-                               when "备货预警" = '无销量' then 30
-                               else 1
-                           end) as risk_score,
-                           count(*) as sku_count
-                    from lx_ads.ads_lx_kd_inventory_sku_calc
-                    where insert_time = :insert_time
+                    with dimension_spu as (
+                        select coalesce("{column}", '未归属') as name,
+                               spu,
+                               sum(coalesce("总库存", 0)) as total_inventory,
+                               sum(coalesce("预测日销", 0)) as demand_daily,
+                               sum(case
+                                   when "备货预警" = '缺货预警' then 100
+                                   when "备货预警" = '限制备货' then 60
+                                   when "备货预警" = '无销量' then 30
+                                   else 1
+                               end) as risk_score,
+                               count(*) as sku_count
+                        from lx_ads.ads_lx_kd_inventory_sku_calc
+                        where insert_time = :insert_time
+                        group by 1, spu
+                    )
+                    select name,
+                           sum(risk_score) as risk_score,
+                           sum(sku_count) as sku_count
+                    from dimension_spu
+                    where total_inventory <> 0 or demand_daily <> 0
                     group by 1
                     order by risk_score desc, sku_count desc
                     limit 1
@@ -289,7 +300,7 @@ class InventoryRepository:
         )
 
     def _scope_metrics(self, batch: dict[str, Any], scope: RoleScope) -> dict[str, Any]:
-        sql = f"""
+        sql = f"""{_report_inventory_cte(scope)}
             select count(*) as sku_count,
                    count(distinct spu) as spu_count,
                    count(distinct "归属") as owner_count,
@@ -321,9 +332,7 @@ class InventoryRepository:
                    sum(case when "备货预警" = '限制备货' then 1 else 0 end) as limited_count,
                    sum(case when "备货预警" = '无销量' then 1 else 0 end) as no_sales_count,
                    sum(case when "备货预警" = '正常' then 1 else 0 end) as normal_count
-            from lx_ads.ads_lx_kd_inventory_sku_calc
-            where insert_time = :insert_time
-            {scope.where_sql}
+            from report_inventory
         """
         params = {"insert_time": batch["insert_time"], **scope.params}
         with self._connect() as conn:
@@ -338,7 +347,7 @@ class InventoryRepository:
         return metrics
 
     def _spu_health(self, batch: dict[str, Any], scope: RoleScope) -> dict[str, Any]:
-        sql = f"""
+        sql = f"""{_report_inventory_cte(scope)}
             select *,
                    case
                      when demand_daily <= 0 and total_inventory > 0 then 'stagnant'
@@ -401,9 +410,7 @@ class InventoryRepository:
                        round((sum(coalesce("国内总数量", 0)) / nullif(sum(coalesce("预测日销", 0)), 0))::numeric, 2) as domestic_coverage_days,
                        round((sum(coalesce("总库存", 0)) /
                            nullif(sum(coalesce("预测日销", 0)), 0))::numeric, 2) as stocking_coverage_days
-                from lx_ads.ads_lx_kd_inventory_sku_calc
-                where insert_time = :insert_time
-                {scope.where_sql}
+                from report_inventory
                 group by spu
             ) s
             order by impact_score desc, sales_30d desc
@@ -446,13 +453,11 @@ class InventoryRepository:
         return {"distribution": distribution, "problem_distribution": problem_distribution, "top_spus": all_spus[:30]}
 
     def _warning_distribution(self, batch: dict[str, Any], scope: RoleScope) -> list[dict[str, Any]]:
-        sql = f"""
+        sql = f"""{_report_inventory_cte(scope)}
             select coalesce("备货预警", '未标记') as warning,
                    count(*) as count,
                    sum(coalesce("建议备货量", 0)) as suggested_restock_qty
-            from lx_ads.ads_lx_kd_inventory_sku_calc
-            where insert_time = :insert_time
-            {scope.where_sql}
+            from report_inventory
             group by 1
             order by count desc
         """
@@ -462,7 +467,7 @@ class InventoryRepository:
         return [{key: _to_float(value) for key, value in dict(row).items()} for row in rows]
 
     def _top_risk_skus(self, batch: dict[str, Any], scope: RoleScope) -> list[dict[str, Any]]:
-        sql = f"""
+        sql = f"""{_report_inventory_cte(scope)}
             select sku,
                    spu,
                    "产品名称" as product_name,
@@ -486,9 +491,7 @@ class InventoryRepository:
                    (coalesce("6_9个月库龄", 0) + coalesce("9_11个月库龄", 0) +
                     coalesce("11_12个月库龄", 0) + coalesce("12个月以上库龄", 0)) as overseas_aged_qty,
                    (coalesce("国内库龄_365以上", 0) + coalesce("12个月以上库龄", 0)) as aged_12m_qty
-            from lx_ads.ads_lx_kd_inventory_sku_calc
-            where insert_time = :insert_time
-            {scope.where_sql}
+            from report_inventory
             order by case
                        when "备货预警" = '缺货预警' then 1
                        when "备货预警" = '限制备货' then 2
@@ -503,6 +506,24 @@ class InventoryRepository:
         with self._connect() as conn:
             rows = conn.execute(text(sql), params).mappings().all()
         return [{key: _to_float(value) for key, value in dict(row).items()} for row in rows]
+
+
+def _report_inventory_cte(scope: RoleScope) -> str:
+    return f"""
+            with scoped_inventory as (
+                select source.*,
+                       sum(coalesce("总库存", 0)) over (partition by spu) as report_spu_total_inventory,
+                       sum(coalesce("预测日销", 0)) over (partition by spu) as report_spu_demand_daily
+                from lx_ads.ads_lx_kd_inventory_sku_calc source
+                where insert_time = :insert_time
+                {scope.where_sql}
+            ),
+            report_inventory as (
+                select *
+                from scoped_inventory
+                where report_spu_total_inventory <> 0 or report_spu_demand_daily <> 0
+            )
+    """
 
 
 def _to_float(value: Any) -> Any:
