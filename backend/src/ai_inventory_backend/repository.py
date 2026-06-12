@@ -329,12 +329,7 @@ class InventoryRepository:
         with self._connect() as conn:
             row = conn.execute(text(sql), params).mappings().one()
         metrics = {key: _to_float(value) for key, value in dict(row).items()}
-        metrics["stocking_inventory_qty"] = (
-            (metrics.get("overseas_ready_qty") or 0)
-            + (metrics.get("domestic_total_qty") or 0)
-            + (metrics.get("purchase_in_transit_qty") or 0)
-            + (metrics.get("purchase_plan_qty") or 0)
-        )
+        metrics["stocking_inventory_qty"] = metrics.get("total_inventory") or 0
         metrics["stocking_coverage_days"] = _safe_days(metrics.get("stocking_inventory_qty"), metrics.get("demand_daily"))
         metrics["overseas_coverage_days"] = _safe_days(metrics.get("overseas_ready_qty"), metrics.get("demand_daily"))
         metrics["domestic_coverage_days"] = _safe_days(metrics.get("domestic_total_qty"), metrics.get("demand_daily"))
@@ -404,9 +399,8 @@ class InventoryRepository:
                        sum(case when "备货预警" = '正常' then 1 else 0 end) as normal_count,
                        round((sum(coalesce("国外合计", 0)) / nullif(sum(coalesce("预测日销", 0)), 0))::numeric, 2) as overseas_coverage_days,
                        round((sum(coalesce("国内总数量", 0)) / nullif(sum(coalesce("预测日销", 0)), 0))::numeric, 2) as domestic_coverage_days,
-                       round(((sum(coalesce("国外合计", 0)) +
-                           sum(coalesce("国内总数量", 0)) + sum(coalesce("采购在途", 0)) +
-                           sum(coalesce("采购计划", 0))) / nullif(sum(coalesce("预测日销", 0)), 0))::numeric, 2) as stocking_coverage_days
+                       round((sum(coalesce("总库存", 0)) /
+                           nullif(sum(coalesce("预测日销", 0)), 0))::numeric, 2) as stocking_coverage_days
                 from lx_ads.ads_lx_kd_inventory_sku_calc
                 where insert_time = :insert_time
                 {scope.where_sql}
