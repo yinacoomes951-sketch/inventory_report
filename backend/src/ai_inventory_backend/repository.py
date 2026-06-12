@@ -19,6 +19,9 @@ from .schemas import ExceptionRow, InventoryRun, ReportDetail, ReportRow, RunSum
 from .source_fields import REQUIRED_SOURCE_FIELDS, SOURCE_TABLE
 
 
+FORECAST_ZERO_THRESHOLD = 0.5
+
+
 def _load_project_env() -> None:
     project_root = Path(__file__).resolve().parents[3]
     for env_path in (project_root / ".env", project_root / "backend" / ".env"):
@@ -230,7 +233,10 @@ class InventoryRepository:
                         select coalesce("{column}", '未归属') as name,
                                spu,
                                sum(coalesce("总库存", 0)) as total_inventory,
-                               sum(coalesce("预测日销", 0)) as demand_daily,
+                               case
+                                   when sum(coalesce("预测日销", 0)) < {FORECAST_ZERO_THRESHOLD} then 0
+                                   else sum(coalesce("预测日销", 0))
+                               end as demand_daily,
                                sum(case
                                    when "备货预警" = '缺货预警' then 100
                                    when "备货预警" = '限制备货' then 60
@@ -310,7 +316,7 @@ class InventoryRepository:
                    avg(nullif("可售天数", 0)) as avg_sellable_days,
                    avg(nullif("建议可售天数", 0)) as avg_suggested_sellable_days,
                    sum(coalesce("最近30天总销量", 0)) as sales_30d,
-                   sum(coalesce("预测日销", 0)) as demand_daily,
+                   sum(report_forecast_daily_sales) as demand_daily,
                    sum(coalesce("fba可售", 0)) as fba_available,
                    sum(coalesce("awd可用", 0)) as awd_available,
                    sum(coalesce("国外合计", 0)) as overseas_ready_qty,
@@ -381,7 +387,7 @@ class InventoryRepository:
                        sum(coalesce("总库存", 0)) as total_inventory,
                        sum(coalesce("最近30天总销量", 0)) as sales_30d,
                        sum(coalesce("建议备货量", 0)) as suggested_restock_qty,
-                       sum(coalesce("预测日销", 0)) as demand_daily,
+                       sum(report_forecast_daily_sales) as demand_daily,
                        sum(coalesce("国外合计", 0)) as overseas_ready_qty,
                        sum(coalesce("国内总数量", 0)) as domestic_total_qty,
                        sum(coalesce("采购在途", 0)) as purchase_in_transit_qty,
@@ -406,10 +412,10 @@ class InventoryRepository:
                        sum(case when "备货预警" = '限制备货' then 1 else 0 end) as limited_count,
                        sum(case when "备货预警" = '无销量' then 1 else 0 end) as no_sales_count,
                        sum(case when "备货预警" = '正常' then 1 else 0 end) as normal_count,
-                       round((sum(coalesce("国外合计", 0)) / nullif(sum(coalesce("预测日销", 0)), 0))::numeric, 2) as overseas_coverage_days,
-                       round((sum(coalesce("国内总数量", 0)) / nullif(sum(coalesce("预测日销", 0)), 0))::numeric, 2) as domestic_coverage_days,
+                       round((sum(coalesce("国外合计", 0)) / nullif(sum(report_forecast_daily_sales), 0))::numeric, 2) as overseas_coverage_days,
+                       round((sum(coalesce("国内总数量", 0)) / nullif(sum(report_forecast_daily_sales), 0))::numeric, 2) as domestic_coverage_days,
                        round((sum(coalesce("总库存", 0)) /
-                           nullif(sum(coalesce("预测日销", 0)), 0))::numeric, 2) as stocking_coverage_days
+                           nullif(sum(report_forecast_daily_sales), 0))::numeric, 2) as stocking_coverage_days
                 from report_inventory
                 group by spu
             ) s
@@ -523,10 +529,22 @@ def _report_inventory_cte(scope: RoleScope) -> str:
                 where insert_time = :insert_time
                 {scope.where_sql}
             ),
+            normalized_inventory as (
+                select *,
+                       case
+                           when report_spu_demand_daily < {FORECAST_ZERO_THRESHOLD} then 0
+                           else coalesce("预测日销", 0)
+                       end as report_forecast_daily_sales,
+                       case
+                           when report_spu_demand_daily < {FORECAST_ZERO_THRESHOLD} then 0
+                           else report_spu_demand_daily
+                       end as normalized_spu_demand_daily
+                from scoped_inventory
+            ),
             report_inventory as (
                 select *
-                from scoped_inventory
-                where report_spu_total_inventory <> 0 or report_spu_demand_daily <> 0
+                from normalized_inventory
+                where report_spu_total_inventory <> 0 or normalized_spu_demand_daily <> 0
             )
     """
 
@@ -547,12 +565,17 @@ def _slug(value: str) -> str:
 
 def _safe_days(qty: Any, demand_daily: Any) -> float | None:
     try:
-        demand = float(demand_daily or 0)
-        if demand <= 0:
+        demand = _normalize_forecast(demand_daily)
+        if demand == 0:
             return None
         return round(float(qty or 0) / demand, 2)
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_forecast(value: Any) -> float:
+    forecast = float(value or 0)
+    return 0 if forecast < FORECAST_ZERO_THRESHOLD else forecast
 
 
 def _is_no_movement_spu(row: dict[str, Any]) -> bool:
@@ -560,8 +583,8 @@ def _is_no_movement_spu(row: dict[str, Any]) -> bool:
     if total_inventory <= 0:
         return False
     sales_30d = float(row.get("sales_30d") or 0)
-    demand_daily = float(row.get("demand_daily") or 0)
-    if sales_30d <= 0 and demand_daily <= 0:
+    demand_daily = _normalize_forecast(row.get("demand_daily"))
+    if sales_30d <= 0 and demand_daily == 0:
         return True
     return str(row.get("health_status") or "") == "stagnant"
 

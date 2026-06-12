@@ -1,8 +1,12 @@
 from ai_inventory_backend.diagnosis import RoleScope
 from ai_inventory_backend.repository import (
+    FORECAST_ZERO_THRESHOLD,
     InventoryRepository,
+    _is_no_movement_spu,
+    _normalize_forecast,
     _problem_top_spus,
     _report_inventory_cte,
+    _safe_days,
 )
 
 
@@ -61,7 +65,8 @@ def test_report_inventory_cte_filters_after_role_scope_and_spu_aggregation():
     assert 'and "归属" = :owner' in sql
     assert 'sum(coalesce("总库存", 0)) over (partition by spu)' in sql
     assert 'sum(coalesce("预测日销", 0)) over (partition by spu)' in sql
-    assert "report_spu_total_inventory <> 0 or report_spu_demand_daily <> 0" in sql
+    assert f"report_spu_demand_daily < {FORECAST_ZERO_THRESHOLD}" in sql
+    assert "report_spu_total_inventory <> 0 or normalized_spu_demand_daily <> 0" in sql
 
 
 def test_all_report_queries_use_the_same_reportable_spu_scope():
@@ -79,15 +84,43 @@ def test_all_report_queries_use_the_same_reportable_spu_scope():
     assert len(engine.statements) == 4
     for sql in engine.statements:
         assert "report_inventory as" in sql
-        assert "report_spu_total_inventory <> 0 or report_spu_demand_daily <> 0" in sql
+        assert f"report_spu_demand_daily < {FORECAST_ZERO_THRESHOLD}" in sql
+        assert "report_spu_total_inventory <> 0 or normalized_spu_demand_daily <> 0" in sql
         assert 'and "部门名称" = :department' in sql
 
 
-def test_zero_inventory_or_zero_forecast_alone_does_not_exclude_spu():
+def test_forecast_below_threshold_is_normalized_to_zero_before_filtering():
     sql = _report_inventory_cte(_scope())
 
-    assert "report_spu_total_inventory <> 0 or report_spu_demand_daily <> 0" in sql
-    assert "report_spu_total_inventory <> 0 and report_spu_demand_daily <> 0" not in sql
+    assert f"when report_spu_demand_daily < {FORECAST_ZERO_THRESHOLD} then 0" in sql
+    assert "else coalesce(\"预测日销\", 0)" in sql
+    assert "report_spu_total_inventory <> 0 or normalized_spu_demand_daily <> 0" in sql
+
+
+def test_forecast_threshold_is_strictly_less_than_zero_point_five():
+    sql = _report_inventory_cte(_scope())
+
+    assert "report_spu_demand_daily < 0.5" in sql
+    assert "report_spu_demand_daily <= 0.5" not in sql
+
+
+def test_forecast_boundary_values_are_normalized_consistently():
+    assert _normalize_forecast(0) == 0
+    assert _normalize_forecast(0.49) == 0
+    assert _normalize_forecast(0.5) == 0.5
+    assert _safe_days(100, 0.49) is None
+    assert _safe_days(100, 0.5) == 200
+
+
+def test_low_forecast_with_inventory_is_treated_as_no_movement():
+    row = {
+        "total_inventory": 100,
+        "sales_30d": 0,
+        "demand_daily": 0.49,
+        "health_status": "healthy",
+    }
+
+    assert _is_no_movement_spu(row) is True
 
 
 def test_top_dimension_excludes_double_zero_spu_after_dimension_aggregation():
@@ -100,7 +133,24 @@ def test_top_dimension_excludes_double_zero_spu_after_dimension_aggregation():
     sql = engine.statements[0]
     assert 'coalesce("归属", \'未归属\') as name' in sql
     assert "group by 1, spu" in sql
+    assert "when sum(coalesce(\"预测日销\", 0)) < 0.5 then 0" in sql
     assert "where total_inventory <> 0 or demand_daily <> 0" in sql
+
+
+def test_report_metrics_and_spu_coverage_use_normalized_forecast():
+    engine = _Engine()
+    repository = object.__new__(InventoryRepository)
+    repository.engine = engine
+    batch = {"insert_time": "2026-06-12"}
+    scope = _scope()
+
+    repository._scope_metrics(batch, scope)
+    repository._spu_health(batch, scope)
+
+    metrics_sql, spu_sql = engine.statements
+    assert "sum(report_forecast_daily_sales) as demand_daily" in metrics_sql
+    assert "sum(report_forecast_daily_sales) as demand_daily" in spu_sql
+    assert "nullif(sum(report_forecast_daily_sales), 0)" in spu_sql
 
 
 def test_problem_top_spus_use_problem_specific_sorting_and_limit():
