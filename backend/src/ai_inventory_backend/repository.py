@@ -302,9 +302,7 @@ class InventoryRepository:
                    sum(coalesce("预测日销", 0)) as demand_daily,
                    sum(coalesce("fba可售", 0)) as fba_available,
                    sum(coalesce("awd可用", 0)) as awd_available,
-                   sum(coalesce("fba可售", 0) + coalesce("awd可用", 0) + coalesce("fba入库中", 0) +
-                       coalesce("国内发送到fba中", 0) + coalesce("国内发送到awd中", 0) +
-                       coalesce("awd待发", 0) + coalesce("awd发送到fba中", 0)) as overseas_ready_qty,
+                   sum(coalesce("国外合计", 0)) as overseas_ready_qty,
                    sum(coalesce("国内总数量", 0)) as domestic_total_qty,
                    sum(coalesce("采购在途", 0)) as purchase_in_transit_qty,
                    sum(coalesce("采购计划", 0)) as purchase_plan_qty,
@@ -380,9 +378,7 @@ class InventoryRepository:
                        sum(coalesce("最近30天总销量", 0)) as sales_30d,
                        sum(coalesce("建议备货量", 0)) as suggested_restock_qty,
                        sum(coalesce("预测日销", 0)) as demand_daily,
-                       sum(coalesce("fba可售", 0) + coalesce("awd可用", 0) + coalesce("fba入库中", 0) +
-                           coalesce("国内发送到fba中", 0) + coalesce("国内发送到awd中", 0) +
-                           coalesce("awd待发", 0) + coalesce("awd发送到fba中", 0)) as overseas_ready_qty,
+                       sum(coalesce("国外合计", 0)) as overseas_ready_qty,
                        sum(coalesce("国内总数量", 0)) as domestic_total_qty,
                        sum(coalesce("采购在途", 0)) as purchase_in_transit_qty,
                        sum(coalesce("采购计划", 0)) as purchase_plan_qty,
@@ -406,13 +402,9 @@ class InventoryRepository:
                        sum(case when "备货预警" = '限制备货' then 1 else 0 end) as limited_count,
                        sum(case when "备货预警" = '无销量' then 1 else 0 end) as no_sales_count,
                        sum(case when "备货预警" = '正常' then 1 else 0 end) as normal_count,
-                       round((sum(coalesce("fba可售", 0) + coalesce("awd可用", 0) + coalesce("fba入库中", 0) +
-                           coalesce("国内发送到fba中", 0) + coalesce("国内发送到awd中", 0) +
-                           coalesce("awd待发", 0) + coalesce("awd发送到fba中", 0)) / nullif(sum(coalesce("预测日销", 0)), 0))::numeric, 2) as overseas_coverage_days,
+                       round((sum(coalesce("国外合计", 0)) / nullif(sum(coalesce("预测日销", 0)), 0))::numeric, 2) as overseas_coverage_days,
                        round((sum(coalesce("国内总数量", 0)) / nullif(sum(coalesce("预测日销", 0)), 0))::numeric, 2) as domestic_coverage_days,
-                       round(((sum(coalesce("fba可售", 0) + coalesce("awd可用", 0) + coalesce("fba入库中", 0) +
-                           coalesce("国内发送到fba中", 0) + coalesce("国内发送到awd中", 0) +
-                           coalesce("awd待发", 0) + coalesce("awd发送到fba中", 0)) +
+                       round(((sum(coalesce("国外合计", 0)) +
                            sum(coalesce("国内总数量", 0)) + sum(coalesce("采购在途", 0)) +
                            sum(coalesce("采购计划", 0))) / nullif(sum(coalesce("预测日销", 0)), 0))::numeric, 2) as stocking_coverage_days
                 from lx_ads.ads_lx_kd_inventory_sku_calc
@@ -494,9 +486,7 @@ class InventoryRepository:
                    "fba可售" as fba_available,
                    "awd可用" as awd_available,
                    "国内总数量" as domestic_total_qty,
-                   (coalesce("fba可售", 0) + coalesce("awd可用", 0) + coalesce("fba入库中", 0) +
-                    coalesce("国内发送到fba中", 0) + coalesce("国内发送到awd中", 0) +
-                    coalesce("awd待发", 0) + coalesce("awd发送到fba中", 0)) as overseas_ready_qty,
+                   coalesce("国外合计", 0) as overseas_ready_qty,
                    (coalesce("国内库龄_180_270", 0) + coalesce("国内库龄_270_330", 0) +
                     coalesce("国内库龄_330_365", 0) + coalesce("国内库龄_365以上", 0)) as domestic_aged_qty,
                    (coalesce("6_9个月库龄", 0) + coalesce("9_11个月库龄", 0) +

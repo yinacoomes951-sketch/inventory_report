@@ -60,6 +60,7 @@ def test_source_contract_exposes_ads_table_and_required_fields():
     assert data["table"] == "lx_ads.ads_lx_kd_inventory_sku_calc"
     assert "sku" in data["requiredFields"]
     assert "归属" in data["requiredFields"]
+    assert "国外合计" in data["requiredFields"]
     assert "insert_time" in data["requiredFields"]
 
 
