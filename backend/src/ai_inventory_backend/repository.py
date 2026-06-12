@@ -450,7 +450,12 @@ class InventoryRepository:
                 has_problem = True
             if not has_problem:
                 problem_distribution["healthy_spu"] += 1
-        return {"distribution": distribution, "problem_distribution": problem_distribution, "top_spus": all_spus[:30]}
+        return {
+            "distribution": distribution,
+            "problem_distribution": problem_distribution,
+            "top_spus": all_spus[:30],
+            "problem_top_spus": _problem_top_spus(all_spus),
+        }
 
     def _warning_distribution(self, batch: dict[str, Any], scope: RoleScope) -> list[dict[str, Any]]:
         sql = f"""{_report_inventory_cte(scope)}
@@ -559,6 +564,59 @@ def _is_no_movement_spu(row: dict[str, Any]) -> bool:
     if sales_30d <= 0 and demand_daily <= 0:
         return True
     return str(row.get("health_status") or "") == "stagnant"
+
+
+def _problem_top_spus(all_spus: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    return {
+        "restock_shortage": sorted(
+            (row for row in all_spus if _is_below(row.get("stocking_coverage_days"), 90)),
+            key=lambda row: (
+                _sort_number(row.get("stocking_coverage_days")),
+                -_sort_number(row.get("demand_daily")),
+                -_sort_number(row.get("impact_score")),
+            ),
+        )[:8],
+        "restock_excess": sorted(
+            (row for row in all_spus if _is_above(row.get("stocking_coverage_days"), 150)),
+            key=lambda row: (
+                -_sort_number(row.get("stocking_coverage_days")),
+                -_sort_number(row.get("aged_90_qty")),
+                -_sort_number(row.get("impact_score")),
+            ),
+        )[:8],
+        "shipment_shortage": sorted(
+            (row for row in all_spus if _is_below(row.get("overseas_coverage_days"), 60)),
+            key=lambda row: (
+                _sort_number(row.get("overseas_coverage_days")),
+                -_sort_number(row.get("demand_daily")),
+                -_sort_number(row.get("impact_score")),
+            ),
+        )[:8],
+        "shipment_excess": sorted(
+            (row for row in all_spus if _is_above(row.get("overseas_coverage_days"), 100)),
+            key=lambda row: (
+                -_sort_number(row.get("overseas_coverage_days")),
+                -_sort_number(row.get("aged_90_qty")),
+                -_sort_number(row.get("impact_score")),
+            ),
+        )[:8],
+        "stagnant": sorted(
+            (row for row in all_spus if _is_no_movement_spu(row) or (row.get("aged_12m_qty") or 0) > 0),
+            key=lambda row: (
+                -_sort_number(row.get("aged_12m_qty")),
+                -_sort_number(row.get("aged_90_qty")),
+                -_sort_number(row.get("total_inventory")),
+                -_sort_number(row.get("impact_score")),
+            ),
+        )[:8],
+    }
+
+
+def _sort_number(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _is_below(value: Any, threshold: float) -> bool:

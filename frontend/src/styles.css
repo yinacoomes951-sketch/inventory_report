@@ -285,6 +285,7 @@ body {
   border-radius: 8px;
   background: #fff;
   padding: 12px;
+  overflow-x: auto;
 }
 
 .spu-problem-section h3 {
@@ -295,6 +296,41 @@ body {
 .spu-problem-section p {
   margin: 0 0 8px;
   color: #667085;
+}
+
+.spu-problem-section table {
+  min-width: 1040px;
+}
+
+.spu-problem-section th {
+  white-space: nowrap;
+}
+
+.spu-problem-section th:nth-child(2),
+.spu-problem-section td:nth-child(2) {
+  width: 200px;
+  max-width: 200px;
+}
+
+.spu-problem-section th:nth-child(4),
+.spu-problem-section td:nth-child(4) {
+  width: 240px;
+  min-width: 240px;
+}
+
+.spu-problem-section th:first-child,
+.spu-problem-section td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  white-space: nowrap;
+  background: #fff;
+  box-shadow: 2px 0 4px rgb(15 23 42 / 8%);
+}
+
+.spu-problem-section th:first-child {
+  z-index: 2;
+  background: #f9fafb;
 }
 
 .chart-grid {

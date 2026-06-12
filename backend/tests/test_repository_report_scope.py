@@ -1,5 +1,9 @@
 from ai_inventory_backend.diagnosis import RoleScope
-from ai_inventory_backend.repository import InventoryRepository, _report_inventory_cte
+from ai_inventory_backend.repository import (
+    InventoryRepository,
+    _problem_top_spus,
+    _report_inventory_cte,
+)
 
 
 class _Result:
@@ -97,3 +101,135 @@ def test_top_dimension_excludes_double_zero_spu_after_dimension_aggregation():
     assert 'coalesce("归属", \'未归属\') as name' in sql
     assert "group by 1, spu" in sql
     assert "where total_inventory <> 0 or demand_daily <> 0" in sql
+
+
+def test_problem_top_spus_use_problem_specific_sorting_and_limit():
+    rows = [
+        _spu("HIGH-IMPACT", stocking_days=80, demand_daily=100, impact_score=999),
+        _spu("LOWEST-COVERAGE", stocking_days=10, demand_daily=1, impact_score=1),
+        _spu("SAME-COVERAGE-HIGH-DEMAND", stocking_days=20, demand_daily=50, impact_score=2),
+        _spu("SAME-COVERAGE-LOW-DEMAND", stocking_days=20, demand_daily=10, impact_score=500),
+    ]
+    rows.extend(
+        _spu(f"EXTRA-{index}", stocking_days=30 + index, demand_daily=1, impact_score=1)
+        for index in range(10)
+    )
+
+    result = _problem_top_spus(rows)
+
+    assert len(result["restock_shortage"]) == 8
+    assert [row["spu"] for row in result["restock_shortage"][:4]] == [
+        "LOWEST-COVERAGE",
+        "SAME-COVERAGE-HIGH-DEMAND",
+        "SAME-COVERAGE-LOW-DEMAND",
+        "EXTRA-0",
+    ]
+    assert result["restock_shortage"][0]["impact_score"] < rows[0]["impact_score"]
+
+
+def test_problem_top_spus_allow_one_spu_in_multiple_groups():
+    row = _spu(
+        "MULTI-PROBLEM",
+        stocking_days=20,
+        overseas_days=30,
+        demand_daily=10,
+        impact_score=100,
+    )
+
+    result = _problem_top_spus([row])
+
+    assert result["restock_shortage"][0]["spu"] == "MULTI-PROBLEM"
+    assert result["shipment_shortage"][0]["spu"] == "MULTI-PROBLEM"
+
+
+def test_problem_top_spus_sort_each_remaining_problem_by_its_own_priority():
+    rows = [
+        _spu("RESTOCK-EXCESS-HIGH", stocking_days=200, demand_daily=1, impact_score=1),
+        _spu(
+            "RESTOCK-EXCESS-AGED",
+            stocking_days=180,
+            demand_daily=1,
+            impact_score=999,
+            aged_90_qty=500,
+        ),
+        _spu("SHIPMENT-SHORT-LOW", stocking_days=120, overseas_days=10, demand_daily=1, impact_score=1),
+        _spu("SHIPMENT-SHORT-HIGH", stocking_days=120, overseas_days=40, demand_daily=100, impact_score=999),
+        _spu("SHIPMENT-EXCESS-HIGH", stocking_days=120, overseas_days=160, demand_daily=1, impact_score=1),
+        _spu(
+            "SHIPMENT-EXCESS-AGED",
+            stocking_days=120,
+            overseas_days=140,
+            demand_daily=1,
+            impact_score=999,
+            aged_90_qty=500,
+        ),
+        _spu(
+            "STAGNANT-12M",
+            stocking_days=None,
+            demand_daily=0,
+            impact_score=1,
+            aged_90_qty=10,
+            aged_12m_qty=5,
+            health_status="stagnant",
+        ),
+        _spu(
+            "STAGNANT-90D",
+            stocking_days=None,
+            demand_daily=0,
+            impact_score=999,
+            aged_90_qty=500,
+            aged_12m_qty=0,
+            health_status="stagnant",
+        ),
+    ]
+
+    result = _problem_top_spus(rows)
+
+    assert result["restock_excess"][0]["spu"] == "RESTOCK-EXCESS-HIGH"
+    assert result["shipment_shortage"][0]["spu"] == "SHIPMENT-SHORT-LOW"
+    assert result["shipment_excess"][0]["spu"] == "SHIPMENT-EXCESS-HIGH"
+    assert result["stagnant"][0]["spu"] == "STAGNANT-12M"
+
+
+def test_problem_top_spus_are_not_limited_to_global_top_30():
+    global_top_rows = [
+        _spu(f"GLOBAL-{index}", stocking_days=120, demand_daily=1, impact_score=1000 - index)
+        for index in range(30)
+    ]
+    category_only_row = _spu(
+        "CATEGORY-OUTSIDE-GLOBAL-TOP",
+        stocking_days=10,
+        demand_daily=1,
+        impact_score=1,
+    )
+
+    result = _problem_top_spus([*global_top_rows, category_only_row])
+
+    assert result["restock_shortage"][0]["spu"] == "CATEGORY-OUTSIDE-GLOBAL-TOP"
+
+
+def _spu(
+    spu,
+    *,
+    stocking_days,
+    overseas_days=80,
+    demand_daily,
+    impact_score,
+    aged_90_qty=0,
+    aged_12m_qty=0,
+    total_inventory=100,
+    sales_30d=30,
+    health_status="local_warning",
+):
+    return {
+        "spu": spu,
+        "stocking_coverage_days": stocking_days,
+        "overseas_coverage_days": overseas_days,
+        "demand_daily": demand_daily,
+        "impact_score": impact_score,
+        "aged_90_qty": aged_90_qty,
+        "aged_12m_qty": aged_12m_qty,
+        "total_inventory": total_inventory,
+        "sales_30d": sales_30d,
+        "health_status": health_status,
+    }
