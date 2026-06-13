@@ -138,6 +138,33 @@ def test_core_spu_sections_prefer_problem_specific_rows():
     assert [row["spu"] for row in restock_shortage_rows] == ["CATEGORY-TOP"]
 
 
+def test_aged_risk_table_renders_dedicated_layout_class():
+    renderer = InventoryReportRenderer()
+    source = renderer.render_html(
+        {
+            "summary": {
+                "health_status": "local_warning",
+                "headline": "test",
+                "totals": {},
+                "key_counts": {
+                    "spu_count": 1,
+                    "restock_shortage_spu_count": 0,
+                    "restock_excess_spu_count": 0,
+                    "shipment_shortage_spu_count": 0,
+                    "shipment_excess_spu_count": 0,
+                    "no_movement_spu_count": 0,
+                },
+            },
+            "problems": [],
+            "spu_health": {"top_spus": []},
+            "action_list": {"today": [], "this_week": [], "human_check": []},
+        }
+    )
+
+    assert '<div class="aged-risk-table">' in source
+    assert '<tbody><tr><td colspan="7">' in source
+
+
 def _spu(
     spu: str,
     *,

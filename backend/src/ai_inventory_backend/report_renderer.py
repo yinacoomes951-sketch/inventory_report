@@ -118,12 +118,14 @@ class InventoryReportRenderer:
 
   <h2>呆滞与清仓风险</h2>
   <p>重点看无动销、90天以上库龄、12个月以上库龄。这里只摘出长库龄最突出的少量SPU，便于优先清仓排查。</p>
-  <table>
-    <thead>
-      <tr><th>SPU</th><th>产品</th><th>健康状态</th><th>90天+库龄</th><th>12个月+</th><th>近30天销量</th><th>建议</th></tr>
-    </thead>
-    <tbody>{aged_rows or '<tr><td colspan="7">本轮TOP影响SPU中暂无突出的90天以上长库龄对象。</td></tr>'}</tbody>
-  </table>
+  <div class="aged-risk-table">
+    <table>
+      <thead>
+        <tr><th>SPU</th><th>产品</th><th>健康状态</th><th>90天+库龄</th><th>12个月+</th><th>近30天销量</th><th>建议</th></tr>
+      </thead>
+      <tbody>{aged_rows or '<tr><td colspan="7">本轮TOP影响SPU中暂无突出的90天以上长库龄对象。</td></tr>'}</tbody>
+    </table>
+  </div>
 
   <h2>BI排查建议</h2>
   <div class="bi-handoff">
