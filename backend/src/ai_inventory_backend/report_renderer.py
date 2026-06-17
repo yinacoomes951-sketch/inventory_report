@@ -14,10 +14,31 @@ class InventoryReportRenderer:
 
         pain_cards = "".join(self._render_pain_card(problem) for problem in diagnosis["problems"][:4])
         paths = "".join(self._render_path(problem) for problem in diagnosis["problems"][:3])
-        grouped_spus = self._group_spus_by_problem(spu_health.get("top_spus", []))
+        grouped_spus = self._group_spus_by_problem(
+            spu_health.get("top_spus", []),
+            spu_health.get("problem_top_spus"),
+        )
         spu_sections = "".join(
-            self._render_spu_problem_section(title, rows, action)
-            for title, rows, action in grouped_spus
+            self._render_spu_problem_section(
+                title,
+                rows,
+                action,
+                metric_title,
+                metric_key,
+                secondary_metric_title,
+                secondary_metric_key,
+                sort_note,
+            )
+            for (
+                title,
+                rows,
+                action,
+                metric_title,
+                metric_key,
+                secondary_metric_title,
+                secondary_metric_key,
+                sort_note,
+            ) in grouped_spus
             if rows
         )
         aged_rows = "".join(
@@ -97,12 +118,14 @@ class InventoryReportRenderer:
 
   <h2>呆滞与清仓风险</h2>
   <p>重点看无动销、90天以上库龄、12个月以上库龄。这里只摘出长库龄最突出的少量SPU，便于优先清仓排查。</p>
-  <table>
-    <thead>
-      <tr><th>SPU</th><th>产品</th><th>健康状态</th><th>90天+库龄</th><th>12个月+</th><th>近30天销量</th><th>建议</th></tr>
-    </thead>
-    <tbody>{aged_rows or '<tr><td colspan="7">本轮TOP影响SPU中暂无突出的90天以上长库龄对象。</td></tr>'}</tbody>
-  </table>
+  <div class="aged-risk-table">
+    <table>
+      <thead>
+        <tr><th>SPU</th><th>产品</th><th>健康状态</th><th>90天+库龄</th><th>12个月+</th><th>近30天销量</th><th>建议</th></tr>
+      </thead>
+      <tbody>{aged_rows or '<tr><td colspan="7">本轮TOP影响SPU中暂无突出的90天以上长库龄对象。</td></tr>'}</tbody>
+    </table>
+  </div>
 
   <h2>BI排查建议</h2>
   <div class="bi-handoff">
@@ -178,9 +201,19 @@ class InventoryReportRenderer:
         )
         return f'<article class="chart-card"><h3>{html.escape(title)}</h3>{bars}</article>'
 
-    def _render_spu_row(self, row: dict[str, Any]) -> str:
+    def _render_spu_row(
+        self,
+        row: dict[str, Any],
+        metric_key: str,
+        secondary_metric_key: str | None = None,
+    ) -> str:
         focus_text = html.escape(str(row.get("_focus_text") or _spu_problem_text(row)))
-        aged_text = f"{_fmt_num(row.get('aged_90_qty'))}"
+        metric_text = _fmt_num(row.get(metric_key))
+        secondary_metric_cell = (
+            f"<td>{_fmt_num(row.get(secondary_metric_key))}</td>"
+            if secondary_metric_key
+            else ""
+        )
         return (
             "<tr>"
             f"<td>{html.escape(str(row.get('spu') or '-'))}</td>"
@@ -189,58 +222,143 @@ class InventoryReportRenderer:
             f"<td>{focus_text}</td>"
             f"<td>{_fmt_num(row.get('stocking_coverage_days'))}天</td>"
             f"<td>{_fmt_num(row.get('overseas_coverage_days'))}天</td>"
-            f"<td>{aged_text}</td>"
+            f"<td>{metric_text}</td>"
+            f"{secondary_metric_cell}"
             f"<td>{_fmt_num(row.get('impact_score'))}</td>"
             "</tr>"
         )
 
-    def _group_spus_by_problem(self, rows: list[dict[str, Any]]) -> list[tuple[str, list[dict[str, Any]], str]]:
+    def _group_spus_by_problem(
+        self,
+        rows: list[dict[str, Any]],
+        problem_top_spus: dict[str, list[dict[str, Any]]] | None = None,
+    ) -> list[
+        tuple[str, list[dict[str, Any]], str, str, str, str | None, str | None, str]
+    ]:
+        problem_top_spus = problem_top_spus or {}
         restock_shortage = [
             {**row, "_focus_text": _restock_shortage_focus(row)}
-            for row in rows
-            if _is_below(row.get("stocking_coverage_days"), 90)
+            for row in problem_top_spus.get(
+                "restock_shortage",
+                [row for row in rows if _is_below(row.get("stocking_coverage_days"), 90)][:8],
+            )
         ][:8]
         restock_excess = [
             {**row, "_focus_text": _restock_excess_focus(row)}
-            for row in rows
-            if _is_above(row.get("stocking_coverage_days"), 150)
+            for row in problem_top_spus.get(
+                "restock_excess",
+                [row for row in rows if _is_above(row.get("stocking_coverage_days"), 150)][:8],
+            )
         ][:8]
         shipment_shortage = [
             {**row, "_focus_text": _shipment_shortage_focus(row)}
-            for row in rows
-            if _is_below(row.get("overseas_coverage_days"), 60)
+            for row in problem_top_spus.get(
+                "shipment_shortage",
+                [row for row in rows if _is_below(row.get("overseas_coverage_days"), 60)][:8],
+            )
         ][:8]
         shipment_excess = [
             {**row, "_focus_text": _shipment_excess_focus(row)}
-            for row in rows
-            if _is_above(row.get("overseas_coverage_days"), 100)
+            for row in problem_top_spus.get(
+                "shipment_excess",
+                [row for row in rows if _is_above(row.get("overseas_coverage_days"), 100)][:8],
+            )
         ][:8]
         stagnant = [
             {**row, "_focus_text": _stagnant_focus(row)}
-            for row in rows
-            if (row.get("no_sales_count") or 0) > 0
-            or row.get("health_status") == "stagnant"
-            or (row.get("aged_12m_qty") or 0) > 0
+            for row in problem_top_spus.get(
+                "stagnant",
+                [
+                    row
+                    for row in rows
+                    if (row.get("no_sales_count") or 0) > 0
+                    or row.get("health_status") == "stagnant"
+                    or (row.get("aged_12m_qty") or 0) > 0
+                ][:8],
+            )
         ][:8]
         return [
-            ("备货不足SPU", restock_shortage, "整体库存口径=海外在途+可售+国内库存+采购在途+采购计划；整体可售天数低于90天才进入补备货判断。"),
-            ("备货过量SPU", restock_excess, "整体可售天数高于150天，优先暂停新增备货并消化库存。"),
-            ("发货不足SPU", shipment_shortage, "发货只看海外在途+可售；低于60天优先安排发货或调拨。"),
-            ("发货过量SPU", shipment_excess, "在途+可售天数高于100天，优先控发并消化海外库存。"),
-            ("无动销/呆滞SPU", stagnant, "先查链接、停售、新品冷启动和库龄；清不了的库存进入清仓、移除或坏账关注。"),
+            (
+                "备货不足SPU",
+                restock_shortage,
+                "整体库存口径=海外在途+可售+国内库存+采购在途+采购计划；整体可售天数低于90天才进入补备货判断。",
+                "预测日销",
+                "demand_daily",
+                None,
+                None,
+                "整体可售天数升序；相同时按预测日销、综合影响分降序。",
+            ),
+            (
+                "备货过量SPU",
+                restock_excess,
+                "整体可售天数高于150天，优先暂停新增备货并消化库存。",
+                "90天+库龄",
+                "aged_90_qty",
+                None,
+                None,
+                "整体可售天数、90天+库龄、综合影响分依次降序。",
+            ),
+            (
+                "发货不足SPU",
+                shipment_shortage,
+                "发货只看海外在途+可售；低于60天优先安排发货或调拨。",
+                "预测日销",
+                "demand_daily",
+                None,
+                None,
+                "在途+可售天数升序；相同时按预测日销、综合影响分降序。",
+            ),
+            (
+                "发货过量SPU",
+                shipment_excess,
+                "在途+可售天数高于100天，优先控发并消化海外库存。",
+                "90天+库龄",
+                "aged_90_qty",
+                None,
+                None,
+                "在途+可售天数、90天+库龄、综合影响分依次降序。",
+            ),
+            (
+                "无动销/呆滞SPU",
+                stagnant,
+                "先查链接、停售、新品冷启动和库龄；清不了的库存进入清仓、移除或坏账关注。",
+                "12个月+库龄",
+                "aged_12m_qty",
+                "90天+库龄",
+                "aged_90_qty",
+                "12个月+库龄、90天+库龄、总库存、综合影响分依次降序。",
+            ),
         ]
 
-    def _render_spu_problem_section(self, title: str, rows: list[dict[str, Any]], action: str) -> str:
-        row_html = "".join(self._render_spu_row(row) for row in rows)
+    def _render_spu_problem_section(
+        self,
+        title: str,
+        rows: list[dict[str, Any]],
+        action: str,
+        metric_title: str,
+        metric_key: str,
+        secondary_metric_title: str | None = None,
+        secondary_metric_key: str | None = None,
+        sort_note: str = "",
+    ) -> str:
+        row_html = "".join(
+            self._render_spu_row(row, metric_key, secondary_metric_key) for row in rows
+        )
+        secondary_metric_header = (
+            f"<th>{html.escape(secondary_metric_title)}</th>"
+            if secondary_metric_title
+            else ""
+        )
         return f"""
 <article class="spu-problem-section">
   <h3>{html.escape(title)}</h3>
   <p>{html.escape(action)}</p>
+  <p class="sort-note">排序规则：{html.escape(sort_note)}</p>
   <table>
     <thead>
       <tr>
         <th>SPU</th><th>产品</th><th>健康状态</th><th>本组关注点</th>
-        <th>整体可售天数</th><th>在途+可售天数</th><th>90天+库龄</th><th>影响分</th>
+        <th>整体可售天数</th><th>在途+可售天数</th><th>{html.escape(metric_title)}</th>{secondary_metric_header}<th>综合影响分</th>
       </tr>
     </thead>
     <tbody>{row_html}</tbody>

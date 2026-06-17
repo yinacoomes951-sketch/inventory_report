@@ -19,6 +19,9 @@ from .schemas import ExceptionRow, InventoryRun, ReportDetail, ReportRow, RunSum
 from .source_fields import REQUIRED_SOURCE_FIELDS, SOURCE_TABLE
 
 
+FORECAST_ZERO_THRESHOLD = 0.5
+
+
 def _load_project_env() -> None:
     project_root = Path(__file__).resolve().parents[3]
     for env_path in (project_root / ".env", project_root / "backend" / ".env"):
@@ -226,16 +229,30 @@ class InventoryRepository:
             row = conn.execute(
                 text(
                     f"""
-                    select coalesce("{column}", '未归属') as name,
-                           sum(case
-                               when "备货预警" = '缺货预警' then 100
-                               when "备货预警" = '限制备货' then 60
-                               when "备货预警" = '无销量' then 30
-                               else 1
-                           end) as risk_score,
-                           count(*) as sku_count
-                    from lx_ads.ads_lx_kd_inventory_sku_calc
-                    where insert_time = :insert_time
+                    with dimension_spu as (
+                        select coalesce("{column}", '未归属') as name,
+                               spu,
+                               sum(coalesce("总库存", 0)) as total_inventory,
+                               case
+                                   when sum(coalesce("预测日销", 0)) < {FORECAST_ZERO_THRESHOLD} then 0
+                                   else sum(coalesce("预测日销", 0))
+                               end as demand_daily,
+                               sum(case
+                                   when "备货预警" = '缺货预警' then 100
+                                   when "备货预警" = '限制备货' then 60
+                                   when "备货预警" = '无销量' then 30
+                                   else 1
+                               end) as risk_score,
+                               count(*) as sku_count
+                        from lx_ads.ads_lx_kd_inventory_sku_calc
+                        where insert_time = :insert_time
+                        group by 1, spu
+                    )
+                    select name,
+                           sum(risk_score) as risk_score,
+                           sum(sku_count) as sku_count
+                    from dimension_spu
+                    where total_inventory <> 0 or demand_daily <> 0
                     group by 1
                     order by risk_score desc, sku_count desc
                     limit 1
@@ -289,7 +306,7 @@ class InventoryRepository:
         )
 
     def _scope_metrics(self, batch: dict[str, Any], scope: RoleScope) -> dict[str, Any]:
-        sql = f"""
+        sql = f"""{_report_inventory_cte(scope)}
             select count(*) as sku_count,
                    count(distinct spu) as spu_count,
                    count(distinct "归属") as owner_count,
@@ -299,12 +316,10 @@ class InventoryRepository:
                    avg(nullif("可售天数", 0)) as avg_sellable_days,
                    avg(nullif("建议可售天数", 0)) as avg_suggested_sellable_days,
                    sum(coalesce("最近30天总销量", 0)) as sales_30d,
-                   sum(coalesce("预测日销", 0)) as demand_daily,
+                   sum(report_forecast_daily_sales) as demand_daily,
                    sum(coalesce("fba可售", 0)) as fba_available,
                    sum(coalesce("awd可用", 0)) as awd_available,
-                   sum(coalesce("fba可售", 0) + coalesce("awd可用", 0) + coalesce("fba入库中", 0) +
-                       coalesce("国内发送到fba中", 0) + coalesce("国内发送到awd中", 0) +
-                       coalesce("awd待发", 0) + coalesce("awd发送到fba中", 0)) as overseas_ready_qty,
+                   sum(coalesce("国外合计", 0)) as overseas_ready_qty,
                    sum(coalesce("国内总数量", 0)) as domestic_total_qty,
                    sum(coalesce("采购在途", 0)) as purchase_in_transit_qty,
                    sum(coalesce("采购计划", 0)) as purchase_plan_qty,
@@ -323,20 +338,13 @@ class InventoryRepository:
                    sum(case when "备货预警" = '限制备货' then 1 else 0 end) as limited_count,
                    sum(case when "备货预警" = '无销量' then 1 else 0 end) as no_sales_count,
                    sum(case when "备货预警" = '正常' then 1 else 0 end) as normal_count
-            from lx_ads.ads_lx_kd_inventory_sku_calc
-            where insert_time = :insert_time
-            {scope.where_sql}
+            from report_inventory
         """
         params = {"insert_time": batch["insert_time"], **scope.params}
         with self._connect() as conn:
             row = conn.execute(text(sql), params).mappings().one()
         metrics = {key: _to_float(value) for key, value in dict(row).items()}
-        metrics["stocking_inventory_qty"] = (
-            (metrics.get("overseas_ready_qty") or 0)
-            + (metrics.get("domestic_total_qty") or 0)
-            + (metrics.get("purchase_in_transit_qty") or 0)
-            + (metrics.get("purchase_plan_qty") or 0)
-        )
+        metrics["stocking_inventory_qty"] = metrics.get("total_inventory") or 0
         metrics["stocking_coverage_days"] = _safe_days(metrics.get("stocking_inventory_qty"), metrics.get("demand_daily"))
         metrics["overseas_coverage_days"] = _safe_days(metrics.get("overseas_ready_qty"), metrics.get("demand_daily"))
         metrics["domestic_coverage_days"] = _safe_days(metrics.get("domestic_total_qty"), metrics.get("demand_daily"))
@@ -345,7 +353,7 @@ class InventoryRepository:
         return metrics
 
     def _spu_health(self, batch: dict[str, Any], scope: RoleScope) -> dict[str, Any]:
-        sql = f"""
+        sql = f"""{_report_inventory_cte(scope)}
             select *,
                    case
                      when demand_daily <= 0 and total_inventory > 0 then 'stagnant'
@@ -379,10 +387,8 @@ class InventoryRepository:
                        sum(coalesce("总库存", 0)) as total_inventory,
                        sum(coalesce("最近30天总销量", 0)) as sales_30d,
                        sum(coalesce("建议备货量", 0)) as suggested_restock_qty,
-                       sum(coalesce("预测日销", 0)) as demand_daily,
-                       sum(coalesce("fba可售", 0) + coalesce("awd可用", 0) + coalesce("fba入库中", 0) +
-                           coalesce("国内发送到fba中", 0) + coalesce("国内发送到awd中", 0) +
-                           coalesce("awd待发", 0) + coalesce("awd发送到fba中", 0)) as overseas_ready_qty,
+                       sum(report_forecast_daily_sales) as demand_daily,
+                       sum(coalesce("国外合计", 0)) as overseas_ready_qty,
                        sum(coalesce("国内总数量", 0)) as domestic_total_qty,
                        sum(coalesce("采购在途", 0)) as purchase_in_transit_qty,
                        sum(coalesce("采购计划", 0)) as purchase_plan_qty,
@@ -406,18 +412,11 @@ class InventoryRepository:
                        sum(case when "备货预警" = '限制备货' then 1 else 0 end) as limited_count,
                        sum(case when "备货预警" = '无销量' then 1 else 0 end) as no_sales_count,
                        sum(case when "备货预警" = '正常' then 1 else 0 end) as normal_count,
-                       round((sum(coalesce("fba可售", 0) + coalesce("awd可用", 0) + coalesce("fba入库中", 0) +
-                           coalesce("国内发送到fba中", 0) + coalesce("国内发送到awd中", 0) +
-                           coalesce("awd待发", 0) + coalesce("awd发送到fba中", 0)) / nullif(sum(coalesce("预测日销", 0)), 0))::numeric, 2) as overseas_coverage_days,
-                       round((sum(coalesce("国内总数量", 0)) / nullif(sum(coalesce("预测日销", 0)), 0))::numeric, 2) as domestic_coverage_days,
-                       round(((sum(coalesce("fba可售", 0) + coalesce("awd可用", 0) + coalesce("fba入库中", 0) +
-                           coalesce("国内发送到fba中", 0) + coalesce("国内发送到awd中", 0) +
-                           coalesce("awd待发", 0) + coalesce("awd发送到fba中", 0)) +
-                           sum(coalesce("国内总数量", 0)) + sum(coalesce("采购在途", 0)) +
-                           sum(coalesce("采购计划", 0))) / nullif(sum(coalesce("预测日销", 0)), 0))::numeric, 2) as stocking_coverage_days
-                from lx_ads.ads_lx_kd_inventory_sku_calc
-                where insert_time = :insert_time
-                {scope.where_sql}
+                       round((sum(coalesce("国外合计", 0)) / nullif(sum(report_forecast_daily_sales), 0))::numeric, 2) as overseas_coverage_days,
+                       round((sum(coalesce("国内总数量", 0)) / nullif(sum(report_forecast_daily_sales), 0))::numeric, 2) as domestic_coverage_days,
+                       round((sum(coalesce("总库存", 0)) /
+                           nullif(sum(report_forecast_daily_sales), 0))::numeric, 2) as stocking_coverage_days
+                from report_inventory
                 group by spu
             ) s
             order by impact_score desc, sales_30d desc
@@ -457,16 +456,19 @@ class InventoryRepository:
                 has_problem = True
             if not has_problem:
                 problem_distribution["healthy_spu"] += 1
-        return {"distribution": distribution, "problem_distribution": problem_distribution, "top_spus": all_spus[:30]}
+        return {
+            "distribution": distribution,
+            "problem_distribution": problem_distribution,
+            "top_spus": all_spus[:30],
+            "problem_top_spus": _problem_top_spus(all_spus),
+        }
 
     def _warning_distribution(self, batch: dict[str, Any], scope: RoleScope) -> list[dict[str, Any]]:
-        sql = f"""
+        sql = f"""{_report_inventory_cte(scope)}
             select coalesce("备货预警", '未标记') as warning,
                    count(*) as count,
                    sum(coalesce("建议备货量", 0)) as suggested_restock_qty
-            from lx_ads.ads_lx_kd_inventory_sku_calc
-            where insert_time = :insert_time
-            {scope.where_sql}
+            from report_inventory
             group by 1
             order by count desc
         """
@@ -476,7 +478,7 @@ class InventoryRepository:
         return [{key: _to_float(value) for key, value in dict(row).items()} for row in rows]
 
     def _top_risk_skus(self, batch: dict[str, Any], scope: RoleScope) -> list[dict[str, Any]]:
-        sql = f"""
+        sql = f"""{_report_inventory_cte(scope)}
             select sku,
                    spu,
                    "产品名称" as product_name,
@@ -494,17 +496,13 @@ class InventoryRepository:
                    "fba可售" as fba_available,
                    "awd可用" as awd_available,
                    "国内总数量" as domestic_total_qty,
-                   (coalesce("fba可售", 0) + coalesce("awd可用", 0) + coalesce("fba入库中", 0) +
-                    coalesce("国内发送到fba中", 0) + coalesce("国内发送到awd中", 0) +
-                    coalesce("awd待发", 0) + coalesce("awd发送到fba中", 0)) as overseas_ready_qty,
+                   coalesce("国外合计", 0) as overseas_ready_qty,
                    (coalesce("国内库龄_180_270", 0) + coalesce("国内库龄_270_330", 0) +
                     coalesce("国内库龄_330_365", 0) + coalesce("国内库龄_365以上", 0)) as domestic_aged_qty,
                    (coalesce("6_9个月库龄", 0) + coalesce("9_11个月库龄", 0) +
                     coalesce("11_12个月库龄", 0) + coalesce("12个月以上库龄", 0)) as overseas_aged_qty,
                    (coalesce("国内库龄_365以上", 0) + coalesce("12个月以上库龄", 0)) as aged_12m_qty
-            from lx_ads.ads_lx_kd_inventory_sku_calc
-            where insert_time = :insert_time
-            {scope.where_sql}
+            from report_inventory
             order by case
                        when "备货预警" = '缺货预警' then 1
                        when "备货预警" = '限制备货' then 2
@@ -519,6 +517,36 @@ class InventoryRepository:
         with self._connect() as conn:
             rows = conn.execute(text(sql), params).mappings().all()
         return [{key: _to_float(value) for key, value in dict(row).items()} for row in rows]
+
+
+def _report_inventory_cte(scope: RoleScope) -> str:
+    return f"""
+            with scoped_inventory as (
+                select source.*,
+                       sum(coalesce("总库存", 0)) over (partition by spu) as report_spu_total_inventory,
+                       sum(coalesce("预测日销", 0)) over (partition by spu) as report_spu_demand_daily
+                from lx_ads.ads_lx_kd_inventory_sku_calc source
+                where insert_time = :insert_time
+                {scope.where_sql}
+            ),
+            normalized_inventory as (
+                select *,
+                       case
+                           when report_spu_demand_daily < {FORECAST_ZERO_THRESHOLD} then 0
+                           else coalesce("预测日销", 0)
+                       end as report_forecast_daily_sales,
+                       case
+                           when report_spu_demand_daily < {FORECAST_ZERO_THRESHOLD} then 0
+                           else report_spu_demand_daily
+                       end as normalized_spu_demand_daily
+                from scoped_inventory
+            ),
+            report_inventory as (
+                select *
+                from normalized_inventory
+                where report_spu_total_inventory <> 0 or normalized_spu_demand_daily <> 0
+            )
+    """
 
 
 def _to_float(value: Any) -> Any:
@@ -537,12 +565,17 @@ def _slug(value: str) -> str:
 
 def _safe_days(qty: Any, demand_daily: Any) -> float | None:
     try:
-        demand = float(demand_daily or 0)
-        if demand <= 0:
+        demand = _normalize_forecast(demand_daily)
+        if demand == 0:
             return None
         return round(float(qty or 0) / demand, 2)
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_forecast(value: Any) -> float:
+    forecast = float(value or 0)
+    return 0 if forecast < FORECAST_ZERO_THRESHOLD else forecast
 
 
 def _is_no_movement_spu(row: dict[str, Any]) -> bool:
@@ -550,10 +583,63 @@ def _is_no_movement_spu(row: dict[str, Any]) -> bool:
     if total_inventory <= 0:
         return False
     sales_30d = float(row.get("sales_30d") or 0)
-    demand_daily = float(row.get("demand_daily") or 0)
-    if sales_30d <= 0 and demand_daily <= 0:
+    demand_daily = _normalize_forecast(row.get("demand_daily"))
+    if sales_30d <= 0 and demand_daily == 0:
         return True
     return str(row.get("health_status") or "") == "stagnant"
+
+
+def _problem_top_spus(all_spus: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    return {
+        "restock_shortage": sorted(
+            (row for row in all_spus if _is_below(row.get("stocking_coverage_days"), 90)),
+            key=lambda row: (
+                _sort_number(row.get("stocking_coverage_days")),
+                -_sort_number(row.get("demand_daily")),
+                -_sort_number(row.get("impact_score")),
+            ),
+        )[:8],
+        "restock_excess": sorted(
+            (row for row in all_spus if _is_above(row.get("stocking_coverage_days"), 150)),
+            key=lambda row: (
+                -_sort_number(row.get("stocking_coverage_days")),
+                -_sort_number(row.get("aged_90_qty")),
+                -_sort_number(row.get("impact_score")),
+            ),
+        )[:8],
+        "shipment_shortage": sorted(
+            (row for row in all_spus if _is_below(row.get("overseas_coverage_days"), 60)),
+            key=lambda row: (
+                _sort_number(row.get("overseas_coverage_days")),
+                -_sort_number(row.get("demand_daily")),
+                -_sort_number(row.get("impact_score")),
+            ),
+        )[:8],
+        "shipment_excess": sorted(
+            (row for row in all_spus if _is_above(row.get("overseas_coverage_days"), 100)),
+            key=lambda row: (
+                -_sort_number(row.get("overseas_coverage_days")),
+                -_sort_number(row.get("aged_90_qty")),
+                -_sort_number(row.get("impact_score")),
+            ),
+        )[:8],
+        "stagnant": sorted(
+            (row for row in all_spus if _is_no_movement_spu(row) or (row.get("aged_12m_qty") or 0) > 0),
+            key=lambda row: (
+                -_sort_number(row.get("aged_12m_qty")),
+                -_sort_number(row.get("aged_90_qty")),
+                -_sort_number(row.get("total_inventory")),
+                -_sort_number(row.get("impact_score")),
+            ),
+        )[:8],
+    }
+
+
+def _sort_number(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _is_below(value: Any, threshold: float) -> bool:

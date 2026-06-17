@@ -19,6 +19,7 @@ SOURCE_FIELD_MAP = {
     "domestic_total_qty": "国内总数量",
     "fba_available": "fba可售",
     "awd_available": "awd可用",
+    "overseas_ready_qty": "国外合计",
     "sales_7d": "最近7天总销量",
     "sales_15d": "最近15天总销量",
     "sales_21d": "最近21天总销量",
