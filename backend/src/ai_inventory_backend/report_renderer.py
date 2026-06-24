@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+from pathlib import Path
 from typing import Any
 
 
@@ -51,7 +52,7 @@ class InventoryReportRenderer:
             if (row.get("aged_90_qty") or 0) > 0
         )
 
-        return f"""
+        report_html = f"""
 <section class="report-html real-inventory-report">
   <h2>核心结论</h2>
   <div class="hero-diagnosis">
@@ -150,6 +151,7 @@ class InventoryReportRenderer:
   <p class="muted">说明：本报告由真实库存数据、库存诊断分析Skill和库存报告表达Skill生成；底层水位规则只参与判断，不作为面向运营的最终诊断表达。SKU明细建议通过BI按SPU下钻查看。</p>
 </section>
 """.strip()
+        return f"{_render_style_block()}\n{report_html}"
 
     def _render_pain_card(self, problem: dict[str, Any]) -> str:
         facts = "".join(f"<li>{html.escape(fact)}</li>" for fact in problem["facts"])
@@ -379,6 +381,40 @@ class InventoryReportRenderer:
             f"<td>{suggestion}</td>"
             "</tr>"
         )
+
+def _render_style_block() -> str:
+    return f"""<style data-inventory-report-style>
+{_load_report_css()}
+</style>"""
+
+
+def _load_report_css() -> str:
+    css_path = Path(__file__).resolve().parents[3] / "frontend" / "src" / "styles.css"
+    try:
+        return css_path.read_text(encoding="utf-8")
+    except OSError:
+        return _fallback_report_css()
+
+
+def _fallback_report_css() -> str:
+    return """
+.report-html{font-family:Arial,"Microsoft YaHei",sans-serif;color:#111827;line-height:1.6}
+.report-html h2{margin:28px 0 12px;font-size:22px}
+.report-html h3{margin:16px 0 8px;font-size:16px}
+.hero-diagnosis,.summary-grid,.concept-grid,.problem-grid,.chart-grid,.action-grid{display:grid;gap:12px}
+.hero-diagnosis,.summary-grid{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.concept-grid,.problem-grid,.chart-grid,.action-grid{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.report-html article,.summary-grid>div,.hero-diagnosis,.html-card{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:16px}
+.status-pill{display:inline-block;border-radius:999px;padding:4px 10px;background:#e5e7eb;font-size:12px;font-weight:700}
+.status-healthy{background:#dcfce7;color:#166534}.status-local_warning{background:#fef3c7;color:#92400e}.status-stagnant{background:#fee2e2;color:#991b1b}
+.report-table{width:100%;border-collapse:collapse;margin-top:8px}
+.report-table th,.report-table td{border:1px solid #e5e7eb;padding:8px;text-align:left;vertical-align:top}
+.report-table th{background:#f9fafb}
+.bar-track{height:10px;background:#e5e7eb;border-radius:999px;overflow:hidden}
+.bar-fill{height:100%;background:#2563eb;border-radius:999px}
+.muted,.sort-note{color:#6b7280}
+""".strip()
+
 
 def _health_label(value: Any) -> str:
     return {

@@ -1,6 +1,18 @@
 from ai_inventory_backend.report_renderer import InventoryReportRenderer
 
 
+def test_render_html_embeds_report_styles_before_report_section():
+    renderer = InventoryReportRenderer()
+    source = renderer.render_html(_minimal_diagnosis())
+
+    style_index = source.index("<style data-inventory-report-style>")
+    section_index = source.index('<section class="report-html real-inventory-report">')
+
+    assert style_index < section_index
+    assert ".html-card" in source
+    assert '<section class="report-html real-inventory-report">' in source
+
+
 def test_core_spu_sections_render_problem_specific_metric_columns():
     renderer = InventoryReportRenderer()
     rows = [
@@ -140,29 +152,31 @@ def test_core_spu_sections_prefer_problem_specific_rows():
 
 def test_aged_risk_table_renders_dedicated_layout_class():
     renderer = InventoryReportRenderer()
-    source = renderer.render_html(
-        {
-            "summary": {
-                "health_status": "local_warning",
-                "headline": "test",
-                "totals": {},
-                "key_counts": {
-                    "spu_count": 1,
-                    "restock_shortage_spu_count": 0,
-                    "restock_excess_spu_count": 0,
-                    "shipment_shortage_spu_count": 0,
-                    "shipment_excess_spu_count": 0,
-                    "no_movement_spu_count": 0,
-                },
-            },
-            "problems": [],
-            "spu_health": {"top_spus": []},
-            "action_list": {"today": [], "this_week": [], "human_check": []},
-        }
-    )
+    source = renderer.render_html(_minimal_diagnosis())
 
     assert '<div class="aged-risk-table">' in source
     assert '<tbody><tr><td colspan="7">' in source
+
+
+def _minimal_diagnosis() -> dict[str, object]:
+    return {
+        "summary": {
+            "health_status": "local_warning",
+            "headline": "test",
+            "totals": {},
+            "key_counts": {
+                "spu_count": 1,
+                "restock_shortage_spu_count": 0,
+                "restock_excess_spu_count": 0,
+                "shipment_shortage_spu_count": 0,
+                "shipment_excess_spu_count": 0,
+                "no_movement_spu_count": 0,
+            },
+        },
+        "problems": [],
+        "spu_health": {"top_spus": []},
+        "action_list": {"today": [], "this_week": [], "human_check": []},
+    }
 
 
 def _spu(

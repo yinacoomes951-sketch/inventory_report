@@ -46,7 +46,6 @@ def _html_page(detail: dict) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{detail["title"]}</title>
-<link rel="stylesheet" href="../frontend/src/styles.css">
 <style>body{{padding:24px;background:#f6f8fb}}.report-page{{max-width:1180px;margin:0 auto}}.html-card{{box-sizing:border-box}}</style>
 </head>
 <body>
