@@ -258,6 +258,32 @@ def test_problem_top_spus_are_not_limited_to_global_top_30():
     assert result["restock_shortage"][0]["spu"] == "CATEGORY-OUTSIDE-GLOBAL-TOP"
 
 
+def test_build_report_detail_uses_rule_html_without_llm_rewrite():
+    repository = object.__new__(InventoryRepository)
+    repository.report_renderer = _Renderer()
+    repository.llm_enhancer = _FailingLlmEnhancer()
+    repository._build_diagnosis = lambda batch, scope: {
+        "summary": {"risk_level": "medium"},
+    }
+
+    detail = repository._build_report_detail(
+        {"batch_key": "batch"},
+        _scope(),
+    )
+
+    assert detail.htmlContent == "<section>rule html</section>"
+
+
+class _Renderer:
+    def render_html(self, diagnosis):
+        return "<section>rule html</section>"
+
+
+class _FailingLlmEnhancer:
+    def enhance_html(self, diagnosis, fallback_html):
+        raise AssertionError("enhance_html should not be called by _build_report_detail")
+
+
 def _spu(
     spu,
     *,

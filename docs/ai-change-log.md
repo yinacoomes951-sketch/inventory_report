@@ -274,3 +274,52 @@
 
 ### 评审结论
 通过。
+
+## 2026-06-24 + 暂停整篇 LLM 报告改写并增加调用观测
+
+### 任务目标
+暂停普通报告详情链路中的整篇 HTML LLM 改写，让 `/api/inventory-reports/{report_id}` 稳定返回规则 HTML；同时保留 LLM 调用观测能力，便于后续排查和改造为独立 AI 区块链路。
+
+### 修改文件
+- `backend/src/ai_inventory_backend/repository.py`
+- `backend/src/ai_inventory_backend/llm_report.py`
+- `backend/tests/test_repository_report_scope.py`
+- `backend/tests/test_llm_report.py`
+
+### 修改内容
+- 在 `_build_report_detail()` 中保留原 `enhance_html()` 调用代码但注释掉实际调用，改为返回 `report_renderer.render_html()` 生成的规则 HTML。
+- 在注释中说明暂停原因：整篇 LLM HTML 改写容易输出过长并被截断，导致 `invalid_html` 回退；后续 AI 能力应改为独立 AI 区块。
+- 为 `enhance_html()` 增加调用日志、失败原因日志和 HTML 来源注释标记，用于判断 LLM 是否被调用、是否成功采用、或是否回退规则 HTML。
+- `invalid_html` 仅保留简短失败日志，不输出 LLM 返回内容预览，避免日志暴露报告片段。
+- 补充单元测试，覆盖 LLM disabled、调用成功、请求失败、非法 HTML、缺少闭合 `</section>`，以及普通报告详情不再调用 LLM 改写。
+
+### 未修改范围
+- 未新增接口。
+- 未修改接口入参、返回结构和 `ReportDetail` schema。
+- 未修改 SQL、数据库结构、数据口径和诊断规则。
+- 未修改 LLM prompt、配置项、依赖和 lock 文件。
+- 未修改前端页面、路由和样式。
+- 未处理工作区中既有的 `.gitignore` 变更。
+
+### 验证方式
+- 在 Conda 环境 `inventory_report` 中显式设置 UTF-8、`PYTHONPATH=backend\src` 和 `AI_INVENTORY_USE_MOCK_DATA=true` 后运行后端测试：
+
+```powershell
+$env:PYTHONPATH='backend\src'
+$env:PYTHONUTF8='1'
+$env:AI_INVENTORY_USE_MOCK_DATA='true'
+conda run -n inventory_report pytest backend\tests -q -o cache_dir=.ai_tmp\pytest_cache
+```
+
+### 验证结论
+- 已实际运行并通过。
+- 测试结果：`29 passed in 1.38s`。
+- 用户已确认验证通过。
+
+### 风险点
+- `/api/inventory-llm/status` 仍会展示 LLM 配置状态，但普通报告详情接口已不再调用 LLM 改写整篇 HTML。
+- `llm_report.py` 仍保留整篇 HTML 改写能力和测试，后续若改为 AI 区块链路，需要重新梳理调用入口和日志含义。
+- `htmlContent` 不再产生 LLM 改写版内容，依赖 LLM 改写效果的临时验证流程需要改为查看规则 HTML 或后续 AI 区块接口。
+
+### 评审结论
+通过。

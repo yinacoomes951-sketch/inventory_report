@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import urllib.error
@@ -9,6 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from .config import Settings
+
+
+logger = logging.getLogger(__name__)
 
 
 class InventoryLlmReportEnhancer:
@@ -43,7 +47,8 @@ class InventoryLlmReportEnhancer:
 
     def enhance_html(self, diagnosis: dict[str, Any], fallback_html: str) -> str:
         if not self.settings.llm_enabled or not self.api_key:
-            return fallback_html
+            logger.info("LLM enhance_html skipped: disabled_or_missing_key")
+            return _mark_html_source(fallback_html, "rule")
         payload = {
             "model": self.model,
             "temperature": 0.2,
@@ -61,16 +66,20 @@ class InventoryLlmReportEnhancer:
             },
             method="POST",
         )
+        logger.info("LLM enhance_html request started")
         try:
             with urllib.request.urlopen(request, timeout=self.settings.llm_timeout_seconds) as response:
                 data = json.loads(response.read().decode("utf-8"))
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-            return fallback_html
+            logger.warning("LLM enhance_html fallback: request_failed", exc_info=True)
+            return _mark_html_source(fallback_html, "rule")
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         html = self._extract_html(content)
         if not html:
-            return fallback_html
-        return self._restore_required_sections(html, fallback_html)
+            logger.warning("LLM enhance_html fallback: invalid_html")
+            return _mark_html_source(fallback_html, "rule")
+        logger.info("LLM enhance_html succeeded")
+        return _mark_html_source(self._restore_required_sections(html, fallback_html), "llm")
 
     def _system_prompt(self) -> str:
         return (
@@ -169,3 +178,7 @@ def _read_limited(path: Path, limit: int = 12000) -> str:
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8")[:limit]
+
+
+def _mark_html_source(html_text: str, source: str) -> str:
+    return f"<!-- inventory-report-source: {source} -->\n{html_text}"

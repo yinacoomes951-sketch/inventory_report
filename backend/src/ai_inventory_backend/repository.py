@@ -280,7 +280,10 @@ class InventoryRepository:
     def _build_report_detail(self, batch: dict[str, Any], scope: RoleScope) -> ReportDetail:
         diagnosis = self._build_diagnosis(batch, scope)
         fallback_html = self.report_renderer.render_html(diagnosis)
-        html_content = self.llm_enhancer.enhance_html(diagnosis, fallback_html)
+        # Pause full-report LLM rewriting: long HTML responses are prone to truncation
+        # and invalid_html fallback. Future AI support should add separate AI blocks.
+        # html_content = self.llm_enhancer.enhance_html(diagnosis, fallback_html)
+        html_content = fallback_html
         return ReportDetail(
             id=scope.id,
             title=f"{scope.object_name} / {scope.level} / 真实库存诊断报告",
