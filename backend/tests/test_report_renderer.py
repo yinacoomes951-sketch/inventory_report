@@ -17,9 +17,9 @@ def test_core_spu_sections_render_problem_specific_metric_columns():
     renderer = InventoryReportRenderer()
     rows = [
         _spu("RESTOCK-SHORT", stocking_days=80, overseas_days=80),
-        _spu("RESTOCK-EXCESS", stocking_days=160, overseas_days=80),
+        _spu("RESTOCK-EXCESS", stocking_days=130, overseas_days=80),
         _spu("SHIPMENT-SHORT", stocking_days=120, overseas_days=50),
-        _spu("SHIPMENT-EXCESS", stocking_days=120, overseas_days=110),
+        _spu("SHIPMENT-EXCESS", stocking_days=120, overseas_days=90),
         _spu(
             "STAGNANT",
             stocking_days=None,
@@ -91,9 +91,9 @@ def test_core_spu_sections_render_problem_specific_sort_notes():
     renderer = InventoryReportRenderer()
     rows = [
         _spu("RESTOCK-SHORT", stocking_days=80, overseas_days=80),
-        _spu("RESTOCK-EXCESS", stocking_days=160, overseas_days=80),
+        _spu("RESTOCK-EXCESS", stocking_days=130, overseas_days=80),
         _spu("SHIPMENT-SHORT", stocking_days=120, overseas_days=50),
-        _spu("SHIPMENT-EXCESS", stocking_days=120, overseas_days=110),
+        _spu("SHIPMENT-EXCESS", stocking_days=120, overseas_days=90),
         _spu(
             "STAGNANT",
             stocking_days=None,

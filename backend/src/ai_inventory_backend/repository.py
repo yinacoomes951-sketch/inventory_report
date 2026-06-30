@@ -362,8 +362,8 @@ class InventoryRepository:
                      when demand_daily <= 0 and total_inventory > 0 then 'stagnant'
                      when stocking_coverage_days is not null and stocking_coverage_days < 90 then 'unhealthy'
                      when overseas_coverage_days is not null and overseas_coverage_days < 60 then 'unhealthy'
-                     when stocking_coverage_days is not null and stocking_coverage_days > 150 then 'local_warning'
-                     when overseas_coverage_days is not null and overseas_coverage_days > 100 then 'local_warning'
+                     when stocking_coverage_days is not null and stocking_coverage_days > 120 then 'local_warning'
+                     when overseas_coverage_days is not null and overseas_coverage_days > 80 then 'local_warning'
                      when aged_90_qty > 0 then 'local_warning'
                      else 'healthy'
                    end as health_status,
@@ -371,13 +371,13 @@ class InventoryRepository:
                      case
                        when stocking_coverage_days is null then 0
                        when stocking_coverage_days < 90 then (90 - stocking_coverage_days) * 8
-                       when stocking_coverage_days > 150 then (stocking_coverage_days - 150) * 3
+                       when stocking_coverage_days > 120 then (stocking_coverage_days - 120) * 3
                        else 0
                      end
                      + case
                        when overseas_coverage_days is null then 0
                        when overseas_coverage_days < 60 then (60 - overseas_coverage_days) * 7
-                       when overseas_coverage_days > 100 then (overseas_coverage_days - 100) * 3
+                       when overseas_coverage_days > 80 then (overseas_coverage_days - 80) * 3
                        else 0
                      end
                      + case when demand_daily <= 0 and total_inventory > 0 then 160 else 0 end
@@ -445,13 +445,13 @@ class InventoryRepository:
             if _is_below(row.get("stocking_coverage_days"), 90):
                 problem_distribution["restock_shortage_spu"] += 1
                 has_problem = True
-            if _is_above(row.get("stocking_coverage_days"), 150):
+            if _is_above(row.get("stocking_coverage_days"), 120):
                 problem_distribution["restock_excess_spu"] += 1
                 has_problem = True
             if _is_below(row.get("overseas_coverage_days"), 60):
                 problem_distribution["shipment_shortage_spu"] += 1
                 has_problem = True
-            if _is_above(row.get("overseas_coverage_days"), 100):
+            if _is_above(row.get("overseas_coverage_days"), 80):
                 problem_distribution["shipment_excess_spu"] += 1
                 has_problem = True
             if _is_no_movement_spu(row):
@@ -603,7 +603,7 @@ def _problem_top_spus(all_spus: list[dict[str, Any]]) -> dict[str, list[dict[str
             ),
         )[:8],
         "restock_excess": sorted(
-            (row for row in all_spus if _is_above(row.get("stocking_coverage_days"), 150)),
+            (row for row in all_spus if _is_above(row.get("stocking_coverage_days"), 120)),
             key=lambda row: (
                 -_sort_number(row.get("stocking_coverage_days")),
                 -_sort_number(row.get("aged_90_qty")),
@@ -619,7 +619,7 @@ def _problem_top_spus(all_spus: list[dict[str, Any]]) -> dict[str, list[dict[str
             ),
         )[:8],
         "shipment_excess": sorted(
-            (row for row in all_spus if _is_above(row.get("overseas_coverage_days"), 100)),
+            (row for row in all_spus if _is_above(row.get("overseas_coverage_days"), 80)),
             key=lambda row: (
                 -_sort_number(row.get("overseas_coverage_days")),
                 -_sort_number(row.get("aged_90_qty")),

@@ -110,7 +110,7 @@ class InventoryDiagnosisEngine:
                     "question_to_investigate": "哪些SPU的整体可售天数低于90天，需要补采购或补计划？",
                     "facts": [
                         f"备货不足SPU={restock_shortage_spu}",
-                        f"整体可售天数={_fmt_num(metrics.get('stocking_coverage_days'))}天（目标90-150天）",
+                        f"整体可售天数={_fmt_num(metrics.get('stocking_coverage_days'))}天（目标90-120天）",
                         f"整体库存口径包含海外在途+可售、国内库存、采购在途、采购计划",
                     ],
                     "inference": "所有库存折算后低于备货安全下限，才进入补备货判断。",
@@ -128,10 +128,10 @@ class InventoryDiagnosisEngine:
                     "problem_type": "restrict_restock",
                     "priority": "P1",
                     "title": "备货过量SPU需要暂停新增备货",
-                    "question_to_investigate": "哪些SPU的整体可售天数高于150天，需要消化或暂停采购？",
+                    "question_to_investigate": "哪些SPU的整体可售天数高于120天，需要消化或暂停采购？",
                     "facts": [
                         f"备货过量SPU={restock_excess_spu}",
-                        f"整体可售天数={_fmt_num(metrics.get('stocking_coverage_days'))}天（目标90-150天）",
+                        f"整体可售天数={_fmt_num(metrics.get('stocking_coverage_days'))}天（目标90-120天）",
                         f"90天以上库龄库存={_fmt_num(metrics.get('aged_90_qty'))}",
                     ],
                     "inference": "所有库存折算后高于备货上限，继续采购会加大库存占用。",
@@ -150,11 +150,11 @@ class InventoryDiagnosisEngine:
                     "problem_type": "shipment",
                     "priority": "P1",
                     "title": "发货水位需要按海外在途+可售单独判断",
-                    "question_to_investigate": "哪些SPU海外在途+可售低于60天或高于100天，需要调整发货节奏？",
+                    "question_to_investigate": "哪些SPU海外在途+可售低于60天或高于80天，需要调整发货节奏？",
                     "facts": [
                         f"发货不足SPU={shipment_shortage_spu}",
                         f"发货过量SPU={shipment_excess_spu}",
-                        f"在途+可售天数={_fmt_num(metrics.get('overseas_coverage_days'))}天（目标60-100天）",
+                        f"在途+可售天数={_fmt_num(metrics.get('overseas_coverage_days'))}天（目标60-80天）",
                     ],
                     "inference": "发货看海外在途和可售，不看采购在途/采购计划；低于下限优先发货，高于上限优先控发。",
                     "action": "按发货不足/发货过量SPU分别调整发货、调拨和控发节奏。",
@@ -297,7 +297,7 @@ class InventoryDiagnosisEngine:
         return (
             f"{scope.object_name}当前库存健康判断为「{health_text}」；"
             f"有 {int(metrics.get('spu_count') or 0)} 个SPU纳入诊断；"
-            f"备货按90-150天、发货按60-100天判断，"
+            f"备货按90-120天、发货按60-80天判断，"
             "并单独关注90天以上长库龄和无动销库存。"
         )
 
@@ -361,8 +361,8 @@ class InventoryDiagnosisEngine:
                 },
             ],
             "coverage": [
-                {"label": "整体可售天数", "value": _to_number(metrics.get("stocking_coverage_days")), "min": 90, "max": 150},
-                {"label": "在途+可售天数", "value": _to_number(metrics.get("overseas_coverage_days")), "min": 60, "max": 100},
+                {"label": "整体可售天数", "value": _to_number(metrics.get("stocking_coverage_days")), "min": 90, "max": 120},
+                {"label": "在途+可售天数", "value": _to_number(metrics.get("overseas_coverage_days")), "min": 60, "max": 80},
             ],
             "aging": [
                 {"label": "国内90天+", "value": _to_number(metrics.get("domestic_aged_90_qty")) or 0},

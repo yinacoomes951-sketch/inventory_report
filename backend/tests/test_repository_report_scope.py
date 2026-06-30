@@ -1,4 +1,4 @@
-from ai_inventory_backend.diagnosis import RoleScope
+from ai_inventory_backend.diagnosis import InventoryDiagnosisEngine, RoleScope
 from ai_inventory_backend.repository import (
     FORECAST_ZERO_THRESHOLD,
     InventoryRepository,
@@ -153,6 +153,25 @@ def test_report_metrics_and_spu_coverage_use_normalized_forecast():
     assert "nullif(sum(report_forecast_daily_sales), 0)" in spu_sql
 
 
+def test_diagnosis_coverage_chart_uses_current_target_ranges():
+    diagnosis = InventoryDiagnosisEngine().build(
+        scope=_scope(),
+        batch_key="2026-06-12",
+        metrics={
+            "stocking_coverage_days": 121,
+            "overseas_coverage_days": 81,
+        },
+        warnings=[],
+        spu_health={"distribution": {}, "problem_distribution": {}},
+        top_skus=[],
+    )
+
+    assert diagnosis["charts"]["coverage"] == [
+        {"label": "整体可售天数", "value": 121, "min": 90, "max": 120},
+        {"label": "在途+可售天数", "value": 81, "min": 60, "max": 80},
+    ]
+
+
 def test_problem_top_spus_use_problem_specific_sorting_and_limit():
     rows = [
         _spu("HIGH-IMPACT", stocking_days=80, demand_daily=100, impact_score=999),
@@ -194,21 +213,21 @@ def test_problem_top_spus_allow_one_spu_in_multiple_groups():
 
 def test_problem_top_spus_sort_each_remaining_problem_by_its_own_priority():
     rows = [
-        _spu("RESTOCK-EXCESS-HIGH", stocking_days=200, demand_daily=1, impact_score=1),
+        _spu("RESTOCK-EXCESS-HIGH", stocking_days=140, demand_daily=1, impact_score=1),
         _spu(
             "RESTOCK-EXCESS-AGED",
-            stocking_days=180,
+            stocking_days=130,
             demand_daily=1,
             impact_score=999,
             aged_90_qty=500,
         ),
         _spu("SHIPMENT-SHORT-LOW", stocking_days=120, overseas_days=10, demand_daily=1, impact_score=1),
         _spu("SHIPMENT-SHORT-HIGH", stocking_days=120, overseas_days=40, demand_daily=100, impact_score=999),
-        _spu("SHIPMENT-EXCESS-HIGH", stocking_days=120, overseas_days=160, demand_daily=1, impact_score=1),
+        _spu("SHIPMENT-EXCESS-HIGH", stocking_days=120, overseas_days=90, demand_daily=1, impact_score=1),
         _spu(
             "SHIPMENT-EXCESS-AGED",
             stocking_days=120,
-            overseas_days=140,
+            overseas_days=85,
             demand_daily=1,
             impact_score=999,
             aged_90_qty=500,
