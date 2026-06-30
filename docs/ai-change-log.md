@@ -369,3 +369,67 @@ conda run -n inventory_report pytest backend\tests -q -o cache_dir=.ai_tmp\pytes
 
 ### 评审结论
 通过。
+
+## 2026-06-30 调整备货和发货覆盖天数区间
+
+### 任务目标
+将诊断报告中的覆盖天数健康参考区间调整为：备货 `90-120` 天，发货 `60-80` 天。
+
+### 修改文件
+- `backend/src/ai_inventory_backend/repository.py`
+- `backend/src/ai_inventory_backend/diagnosis.py`
+- `backend/src/ai_inventory_backend/report_renderer.py`
+- `backend/tests/test_repository_report_scope.py`
+- `backend/tests/test_report_renderer.py`
+- `README.md`
+- `docs/inventory_analysis_skill.md`
+- `docs/inventory_report_metric_definitions.md`
+
+### 修改内容
+- 将备货过量判断从整体可售天数 `> 150` 调整为 `> 120`。
+- 将发货过量判断从在途+可售天数 `> 100` 调整为 `> 80`。
+- 同步综合影响分中的过量偏离计算基准。
+- 同步诊断文案、HTML 报告文案和 `charts.coverage` 图表区间。
+- 同步相关测试样例，并新增诊断图表区间断言。
+- 同步 README 和指标口径文档中的健康参考区间说明。
+
+### 未修改范围
+- 未修改接口入参和返回结构。
+- 未修改数据库结构。
+- 未修改 SQL 取数字段、统计粒度、过滤条件和分组维度。
+- 未修改源表 SKU 层 `备货预警` 上游规则。
+- 未新增依赖，未修改 lock 文件。
+- 未修改前端页面、路由和样式。
+- 未处理工作区中既有的 `.gitignore`、`docs/inventory_report_skill.md` 等无关变更。
+
+### 验证方式
+在 Conda 环境 `inventory_report` 中设置 `PYTHONPATH=backend\src` 后运行相关后端单测：
+
+```powershell
+cd backend
+$env:PYTHONPATH=(Resolve-Path .\src)
+conda run -n inventory_report python -m pytest tests\test_repository_report_scope.py tests\test_report_renderer.py -q
+```
+
+另外尝试运行包含 API 合同的扩展测试：
+
+```powershell
+cd backend
+$env:PYTHONPATH=(Resolve-Path .\src)
+conda run -n inventory_report python -m pytest tests\test_api.py tests\test_repository_report_scope.py tests\test_report_renderer.py -q
+```
+
+### 验证结论
+- 已实际运行并通过。
+- 相关后端单测结果：`19 passed in 1.15s`。
+- 扩展 API 测试已实际运行但失败，原因是 `test_api.py` 需要连接真实数据库 `192.168.1.226:5432`，当前环境返回 `Permission denied`；同次运行中其余 `22` 条通过。
+- 用户已确认验证通过。
+
+### 风险点
+- 阈值区间收窄后，备货过量 SPU 和发货过量 SPU 数量可能增加。
+- `local_warning` 状态 SPU 数量可能增加。
+- 核心影响 SPU 的过量类排序可能变化。
+- 历史报告或历史记录中旧阈值描述不会自动回写。
+
+### 评审结论
+通过。

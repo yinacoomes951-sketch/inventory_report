@@ -83,7 +83,7 @@ class InventoryReportRenderer:
   <div class="concept-grid">
     <article>
       <h3>健康</h3>
-      <p>整体可售天数在90-150天、在途+可售天数在60-100天，且动销和库龄未触发明显风险。</p>
+      <p>整体可售天数在90-120天、在途+可售天数在60-80天，且动销和库龄未触发明显风险。</p>
     </article>
     <article>
       <h3>局部预警</h3>
@@ -133,8 +133,8 @@ class InventoryReportRenderer:
     <p>本报告不直接展开SKU明细，避免一进入报告就被过细颗粒度淹没。需要处理某个SPU时，再跳转BI按SPU下钻到SKU。</p>
     <ul>
       <li>优先筛选“核心影响SPU”表中的TOP SPU。</li>
-      <li>备货问题：查看整体库存口径、预测日销、采购在途、采购计划，确认整体可售天数90-150天区间。</li>
-      <li>发货问题：查看海外在途+可售和预测日销，确认在途+可售天数60-100天区间。</li>
+      <li>备货问题：查看整体库存口径、预测日销、采购在途、采购计划，确认整体可售天数90-120天区间。</li>
+      <li>发货问题：查看海外在途+可售和预测日销，确认在途+可售天数60-80天区间。</li>
       <li>呆滞清仓问题：查看无动销、国内90天以上库龄、海外90天以上库龄、12个月以上库龄。</li>
     </ul>
     <a class="bi-link" href="#" aria-disabled="true">跳转BI查看SKU明细（待接入BI深链）</a>
@@ -170,7 +170,7 @@ class InventoryReportRenderer:
         return f"""
 <article class="path-card">
   <h3>{html.escape(problem['question_to_investigate'])}</h3>
-  <p>先看核心影响SPU，再下钻突出SKU；备货按整体可售天数90-150天判断，发货按在途+可售天数60-100天判断。</p>
+  <p>先看核心影响SPU，再下钻突出SKU；备货按整体可售天数90-120天判断，发货按在途+可售天数60-80天判断。</p>
   <p>超过上限的对象不要直接补货或发货，先复核预测日销、季节性、链接状态和库龄。</p>
   <p>若出现12个月以上库龄，单独进入清仓、移除或坏账风险判断。</p>
 </article>
@@ -249,7 +249,7 @@ class InventoryReportRenderer:
             {**row, "_focus_text": _restock_excess_focus(row)}
             for row in problem_top_spus.get(
                 "restock_excess",
-                [row for row in rows if _is_above(row.get("stocking_coverage_days"), 150)][:8],
+                [row for row in rows if _is_above(row.get("stocking_coverage_days"), 120)][:8],
             )
         ][:8]
         shipment_shortage = [
@@ -263,7 +263,7 @@ class InventoryReportRenderer:
             {**row, "_focus_text": _shipment_excess_focus(row)}
             for row in problem_top_spus.get(
                 "shipment_excess",
-                [row for row in rows if _is_above(row.get("overseas_coverage_days"), 100)][:8],
+                [row for row in rows if _is_above(row.get("overseas_coverage_days"), 80)][:8],
             )
         ][:8]
         stagnant = [
@@ -293,7 +293,7 @@ class InventoryReportRenderer:
             (
                 "备货过量SPU",
                 restock_excess,
-                "整体可售天数高于150天，优先暂停新增备货并消化库存。",
+                "整体可售天数高于120天，优先暂停新增备货并消化库存。",
                 "90天+库龄",
                 "aged_90_qty",
                 None,
@@ -313,7 +313,7 @@ class InventoryReportRenderer:
             (
                 "发货过量SPU",
                 shipment_excess,
-                "在途+可售天数高于100天，优先控发并消化海外库存。",
+                "在途+可售天数高于80天，优先控发并消化海外库存。",
                 "90天+库龄",
                 "aged_90_qty",
                 None,
@@ -436,11 +436,11 @@ def _spu_problem_text(row: dict[str, Any]) -> str:
     labels = []
     if _is_below(row.get("stocking_coverage_days"), 90):
         labels.append("备货不足")
-    if _is_above(row.get("stocking_coverage_days"), 150):
+    if _is_above(row.get("stocking_coverage_days"), 120):
         labels.append("备货过量")
     if _is_below(row.get("overseas_coverage_days"), 60):
         labels.append("发货不足")
-    if _is_above(row.get("overseas_coverage_days"), 100):
+    if _is_above(row.get("overseas_coverage_days"), 80):
         labels.append("发货过量")
     if (row.get("no_sales_count") or 0) > 0:
         labels.append("无动销")
@@ -454,7 +454,7 @@ def _restock_shortage_focus(row: dict[str, Any]) -> str:
 def _restock_excess_focus(row: dict[str, Any]) -> str:
     if (row.get("aged_90_qty") or 0) > 0:
         return f"整体可售{_fmt_num(row.get('stocking_coverage_days'))}天且90天+库龄"
-    return f"整体可售{_fmt_num(row.get('stocking_coverage_days'))}天，高于150天"
+    return f"整体可售{_fmt_num(row.get('stocking_coverage_days'))}天，高于120天"
 
 
 def _shipment_shortage_focus(row: dict[str, Any]) -> str:
@@ -462,7 +462,7 @@ def _shipment_shortage_focus(row: dict[str, Any]) -> str:
 
 
 def _shipment_excess_focus(row: dict[str, Any]) -> str:
-    return f"在途+可售{_fmt_num(row.get('overseas_coverage_days'))}天，高于100天"
+    return f"在途+可售{_fmt_num(row.get('overseas_coverage_days'))}天，高于80天"
 
 
 def _overstock_focus(row: dict[str, Any]) -> str:
