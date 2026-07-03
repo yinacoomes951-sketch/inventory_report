@@ -433,3 +433,70 @@ conda run -n inventory_report python -m pytest tests\test_api.py tests\test_repo
 
 ### 评审结论
 通过。
+
+## 2026-07-03 新增产品层级库存诊断报告
+
+### 任务目标
+新增一个独立于原 SPU/SKU 诊断报告的产品层级维度库存诊断报告，按源表字段“产品层级”聚合，沿用海外在途+可售口径，并在报告中展示产品层级标签、库存结构、库龄结构、库存占比和测试导出能力。
+
+### 修改文件
+- `backend/src/ai_inventory_backend/app.py`
+- `backend/src/ai_inventory_backend/repository.py`
+- `backend/src/ai_inventory_backend/service.py`
+- `backend/src/ai_inventory_backend/source_fields.py`
+- `backend/src/ai_inventory_backend/product_level_diagnosis.py`
+- `backend/src/ai_inventory_backend/product_level_report_renderer.py`
+- `backend/tests/test_product_level_report.py`
+- `backend/tools/export_product_level_reports.py`
+
+### 修改内容
+- 新增产品层级报告接口链路，与原 SPU 维度报告接口分开。
+- 新增产品层级诊断逻辑，按“产品层级”聚合，并使用与 SPU 维度一致的备货和发货可售天数区间判断标签。
+- 产品层级标签仅保留“备货不足/正常/备货过量”和“发货不足/正常/发货过量”，不展示“保供/观察/控补/清理”四类动作标签，也不展示“呆滞库存风险”标签。
+- 新增产品层级 HTML 报告渲染器，展示概览、产品层级判断、库存与长库龄集中度、整体库龄结构、诊断明细和行动清单。
+- 修复产品层级报告右上角口径胶囊文本垂直居中问题。
+- 整体库龄结构增加数量和占比展示。
+- 每个产品层级卡片和诊断明细表增加库存占比展示。
+- 新增产品层级报告测试和本地导出脚本。
+
+### 未修改范围
+- 未修改原 SPU/SKU 维度诊断报告核心逻辑文件 `backend/src/ai_inventory_backend/diagnosis.py`。
+- 未修改原 SPU/SKU 维度报告渲染文件 `backend/src/ai_inventory_backend/report_renderer.py`。
+- 未修改数据库结构。
+- 未新增依赖。
+- 未修改 lock 文件。
+- 未修改原 SPU 报告接口入参和返回结构。
+- 未自动提交、未自动推送。
+
+### 验证方式
+在 Conda 环境 `inventory_report` 中显式设置 UTF-8、`PYTHONPATH=backend\src` 和 `AI_INVENTORY_USE_MOCK_DATA=true` 后运行相关后端测试：
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'; $env:PYTHONUTF8='1'; $env:AI_INVENTORY_USE_MOCK_DATA='true'; $env:PYTHONPATH=(Resolve-Path .\backend\src); conda run -n inventory_report python -m pytest backend\tests\test_product_level_report.py -q -p no:cacheprovider
+```
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'; $env:PYTHONUTF8='1'; $env:AI_INVENTORY_USE_MOCK_DATA='true'; $env:PYTHONPATH=(Resolve-Path .\backend\src); conda run -n inventory_report python -m pytest backend\tests\test_product_level_report.py backend\tests\test_repository_report_scope.py backend\tests\test_api.py backend\tests\test_export_reports.py -q -p no:cacheprovider
+```
+
+同时检查原 SPU 核心文件未被修改：
+
+```powershell
+git diff -- backend\src\ai_inventory_backend\diagnosis.py backend\src\ai_inventory_backend\report_renderer.py
+```
+
+### 验证结论
+已实际运行并通过。
+
+- 产品层级报告测试结果：`7 passed in 1.22s`。
+- 相关回归测试结果：`29 passed in 1.39s`。
+- SPU 核心文件 diff 检查无输出，确认未修改 `diagnosis.py` 和 `report_renderer.py`。
+- 用户已确认验证通过。
+
+### 风险点
+- 产品层级报告新增 HTML 展示字段后，需要人工关注真实浏览器中的横向表格宽度和卡片信息密度。
+- 库存占比在 HTML 渲染层基于 `summary.totals.total_inventory` 计算，当前未写入结构化诊断 JSON；如果后续前端或外部系统需要直接消费该字段，需要再扩展 JSON 契约。
+- 产品层级报告接口、导出脚本和测试为新增链路，后续如调整源表字段口径，需要同步检查 repository、diagnosis 和 renderer。
+
+### 评审结论
+通过。

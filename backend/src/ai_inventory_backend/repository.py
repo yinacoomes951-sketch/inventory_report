@@ -14,6 +14,8 @@ from .config import Settings
 from .diagnosis import InventoryDiagnosisEngine, RoleScope
 from .llm_report import InventoryLlmReportEnhancer
 from .mock_data import EXCEPTIONS, REPORT_DETAIL, REPORTS, RUNS, SUMMARY
+from .product_level_diagnosis import ProductLevelDiagnosisEngine
+from .product_level_report_renderer import ProductLevelReportRenderer
 from .report_renderer import InventoryReportRenderer
 from .schemas import ExceptionRow, InventoryRun, ReportDetail, ReportRow, RunSummary
 from .source_fields import REQUIRED_SOURCE_FIELDS, SOURCE_TABLE
@@ -51,6 +53,8 @@ class InventoryRepository:
         )
         self.diagnosis_engine = InventoryDiagnosisEngine()
         self.report_renderer = InventoryReportRenderer()
+        self.product_level_diagnosis_engine = ProductLevelDiagnosisEngine()
+        self.product_level_report_renderer = ProductLevelReportRenderer()
         self.llm_enhancer = InventoryLlmReportEnhancer(self.settings)
 
     def get_summary(self) -> RunSummary:
@@ -105,6 +109,33 @@ class InventoryRepository:
             for scope in scopes
         ]
 
+    def list_product_level_reports(self, run_id: str) -> list[ReportRow]:
+        if self.use_mock_data:
+            return [
+                row.model_copy(
+                    update={
+                        "id": f"product-level-{row.id}",
+                        "objectName": f"{row.objectName}产品层级",
+                    }
+                )
+                for row in REPORTS
+            ]
+        batch = self._latest_batch()
+        scopes = self._build_scopes(batch)
+        return [
+            ReportRow(
+                id=_product_level_report_id(scope),
+                objectName=scope.object_name,
+                level=f"{scope.level}/产品层级",
+                reportStatus="generated",
+                pushStatus="not_integrated",
+                clickStatus="not_tracked",
+                clickCount=0,
+                lastClickedAt=None,
+            )
+            for scope in scopes
+        ]
+
     def list_exceptions(self, run_id: str) -> list[ExceptionRow]:
         if self.use_mock_data:
             return EXCEPTIONS
@@ -134,6 +165,23 @@ class InventoryRepository:
         report = self._build_report_detail(batch, scope)
         return report
 
+    def get_product_level_report(self, report_id: str) -> ReportDetail:
+        if self.use_mock_data:
+            diagnosis = self._mock_product_level_diagnosis(report_id)
+            return ReportDetail(
+                id=report_id,
+                title="产品层级库存诊断报告",
+                objectName=diagnosis["scope"]["object_name"],
+                level=f"{diagnosis['scope']['level']}/产品层级",
+                batchKey=diagnosis["scope"]["batch_key"],
+                riskLevel=diagnosis["summary"]["risk_level"],
+                htmlContent=self.product_level_report_renderer.render_html(diagnosis),
+            )
+        batch = self._latest_batch()
+        scopes = {_product_level_report_id(scope): scope for scope in self._build_scopes(batch)}
+        scope = scopes.get(report_id) or self._build_scopes(batch)[-1]
+        return self._build_product_level_report_detail(batch, scope)
+
     def get_diagnosis(self, report_id: str) -> dict[str, Any]:
         if self.use_mock_data:
             return {
@@ -158,6 +206,14 @@ class InventoryRepository:
         scope = scopes.get(report_id) or self._build_scopes(batch)[-1]
         return self._build_diagnosis(batch, scope)
 
+    def get_product_level_diagnosis(self, report_id: str) -> dict[str, Any]:
+        if self.use_mock_data:
+            return self._mock_product_level_diagnosis(report_id)
+        batch = self._latest_batch()
+        scopes = {_product_level_report_id(scope): scope for scope in self._build_scopes(batch)}
+        scope = scopes.get(report_id) or self._build_scopes(batch)[-1]
+        return self._build_product_level_diagnosis(batch, scope)
+
     def source_contract(self) -> dict[str, object]:
         return {
             "table": SOURCE_TABLE,
@@ -167,6 +223,64 @@ class InventoryRepository:
 
     def llm_status(self) -> dict[str, Any]:
         return self.llm_enhancer.status()
+
+    def _mock_product_level_diagnosis(self, report_id: str) -> dict[str, Any]:
+        scope = RoleScope(
+            id=report_id,
+            level=REPORT_DETAIL.level,
+            object_name=REPORT_DETAIL.objectName,
+            where_sql="",
+            params={},
+        )
+        return self.product_level_diagnosis_engine.build(
+            scope=scope,
+            batch_key=REPORT_DETAIL.batchKey,
+            level_rows=[
+                {
+                    "product_level": "大爆款",
+                    "sku_count": 8,
+                    "spu_count": 2,
+                    "total_inventory": 238500,
+                    "overseas_ready_qty": 211200,
+                    "domestic_total_qty": 27300,
+                    "purchase_in_transit_qty": 0,
+                    "purchase_plan_qty": 0,
+                    "demand_daily": 6276.32,
+                    "sales_30d": 188290,
+                    "stocking_coverage_days": 38,
+                    "overseas_coverage_days": 34,
+                    "domestic_coverage_days": 4,
+                    "aged_90_qty": 17900,
+                    "aged_365_qty": 0,
+                    "aged_365_ratio": 0,
+                },
+                {
+                    "product_level": "运营级产品",
+                    "sku_count": 10,
+                    "spu_count": 3,
+                    "total_inventory": 298900,
+                    "overseas_ready_qty": 171100,
+                    "domestic_total_qty": 127800,
+                    "purchase_in_transit_qty": 0,
+                    "purchase_plan_qty": 0,
+                    "demand_daily": 2372.22,
+                    "sales_30d": 71167,
+                    "stocking_coverage_days": 126,
+                    "overseas_coverage_days": 72,
+                    "domestic_coverage_days": 54,
+                    "aged_90_qty": 108400,
+                    "aged_365_qty": 78200,
+                    "aged_365_ratio": 0.2616,
+                },
+            ],
+            aging_buckets=[
+                {"label": "0-90天", "value": 351100},
+                {"label": "90-180天", "value": 97500},
+                {"label": "180-270天", "value": 10600},
+                {"label": "270-365天", "value": 0},
+                {"label": "365天以上", "value": 78200},
+            ],
+        )
 
     def _connect(self):
         if self.engine is None:
@@ -294,6 +408,19 @@ class InventoryRepository:
             htmlContent=html_content,
         )
 
+    def _build_product_level_report_detail(self, batch: dict[str, Any], scope: RoleScope) -> ReportDetail:
+        diagnosis = self._build_product_level_diagnosis(batch, scope)
+        html_content = self.product_level_report_renderer.render_html(diagnosis)
+        return ReportDetail(
+            id=_product_level_report_id(scope),
+            title=f"{scope.object_name} / {scope.level} / 产品层级库存诊断报告",
+            objectName=scope.object_name,
+            level=f"{scope.level}/产品层级",
+            batchKey=batch["batch_key"],
+            riskLevel=diagnosis["summary"]["risk_level"],
+            htmlContent=html_content,
+        )
+
     def _build_diagnosis(self, batch: dict[str, Any], scope: RoleScope) -> dict[str, Any]:
         metrics = self._scope_metrics(batch, scope)
         warnings = self._warning_distribution(batch, scope)
@@ -307,6 +434,79 @@ class InventoryRepository:
             spu_health=spu_health,
             top_skus=top_skus,
         )
+
+    def _build_product_level_diagnosis(self, batch: dict[str, Any], scope: RoleScope) -> dict[str, Any]:
+        return self.product_level_diagnosis_engine.build(
+            scope=scope,
+            batch_key=batch["batch_key"],
+            level_rows=self._product_level_metrics(batch, scope),
+            aging_buckets=self._product_level_aging(batch, scope),
+        )
+
+    def _product_level_metrics(self, batch: dict[str, Any], scope: RoleScope) -> list[dict[str, Any]]:
+        sql = f"""{_report_inventory_cte(scope)}
+            select coalesce("产品层级", '未分级') as product_level,
+                   count(*) as sku_count,
+                   count(distinct spu) as spu_count,
+                   sum(coalesce("总库存", 0)) as total_inventory,
+                   sum(coalesce("国外合计", 0)) as overseas_ready_qty,
+                   sum(coalesce("国内总数量", 0)) as domestic_total_qty,
+                   sum(coalesce("采购在途", 0)) as purchase_in_transit_qty,
+                   sum(coalesce("采购计划", 0)) as purchase_plan_qty,
+                   sum(report_forecast_daily_sales) as demand_daily,
+                   sum(coalesce("最近30天总销量", 0)) as sales_30d,
+                   sum(coalesce("国内库龄_90_180", 0) + coalesce("国内库龄_180_270", 0) +
+                       coalesce("国内库龄_270_330", 0) + coalesce("国内库龄_330_365", 0) +
+                       coalesce("国内库龄_365以上", 0) + coalesce("3_6个月库龄", 0) +
+                       coalesce("6_9个月库龄", 0) + coalesce("9_11个月库龄", 0) +
+                       coalesce("11_12个月库龄", 0) + coalesce("12个月以上库龄", 0)) as aged_90_qty,
+                   sum(coalesce("国内库龄_365以上", 0) + coalesce("12个月以上库龄", 0)) as aged_365_qty
+            from report_inventory
+            group by 1
+        """
+        params = {"insert_time": batch["insert_time"], **scope.params}
+        with self._connect() as conn:
+            rows = conn.execute(text(sql), params).mappings().all()
+        result = []
+        for row in rows:
+            item = {key: _to_float(value) for key, value in dict(row).items()}
+            demand_daily = item.get("demand_daily")
+            total_inventory = item.get("total_inventory") or 0
+            item["stocking_coverage_days"] = _safe_days(total_inventory, demand_daily)
+            item["overseas_coverage_days"] = _safe_days(item.get("overseas_ready_qty"), demand_daily)
+            item["domestic_coverage_days"] = _safe_days(item.get("domestic_total_qty"), demand_daily)
+            item["aged_365_ratio"] = _safe_ratio(item.get("aged_365_qty"), total_inventory)
+            result.append(item)
+        return result
+
+    def _product_level_aging(self, batch: dict[str, Any], scope: RoleScope) -> list[dict[str, Any]]:
+        sql = f"""{_report_inventory_cte(scope)}
+            select sum(coalesce("国内库龄_90_180", 0) + coalesce("3_6个月库龄", 0)) as aged_90_180_qty,
+                   sum(coalesce("国内库龄_180_270", 0) + coalesce("6_9个月库龄", 0)) as aged_180_270_qty,
+                   sum(coalesce("国内库龄_270_330", 0) + coalesce("国内库龄_330_365", 0) +
+                       coalesce("9_11个月库龄", 0) + coalesce("11_12个月库龄", 0)) as aged_270_365_qty,
+                   sum(coalesce("国内库龄_365以上", 0) + coalesce("12个月以上库龄", 0)) as aged_365_qty,
+                   sum(coalesce("总库存", 0)) as total_inventory
+            from report_inventory
+        """
+        params = {"insert_time": batch["insert_time"], **scope.params}
+        with self._connect() as conn:
+            row = conn.execute(text(sql), params).mappings().one()
+        values = {key: _to_float(value) for key, value in dict(row).items()}
+        aged_90_180 = values.get("aged_90_180_qty") or 0
+        aged_180_270 = values.get("aged_180_270_qty") or 0
+        aged_270_365 = values.get("aged_270_365_qty") or 0
+        aged_365 = values.get("aged_365_qty") or 0
+        total_inventory = values.get("total_inventory") or 0
+        known_aged = aged_90_180 + aged_180_270 + aged_270_365 + aged_365
+        fresh_qty = max(total_inventory - known_aged, 0)
+        return [
+            {"label": "0-90天", "value": _to_float(fresh_qty)},
+            {"label": "90-180天", "value": _to_float(aged_90_180)},
+            {"label": "180-270天", "value": _to_float(aged_180_270)},
+            {"label": "270-365天", "value": _to_float(aged_270_365)},
+            {"label": "365天以上", "value": _to_float(aged_365)},
+        ]
 
     def _scope_metrics(self, batch: dict[str, Any], scope: RoleScope) -> dict[str, Any]:
         sql = f"""{_report_inventory_cte(scope)}
@@ -566,6 +766,10 @@ def _slug(value: str) -> str:
     return hashlib.sha1(value.encode("utf-8")).hexdigest()[:10]
 
 
+def _product_level_report_id(scope: RoleScope) -> str:
+    return f"product-level-{scope.id}"
+
+
 def _safe_days(qty: Any, demand_daily: Any) -> float | None:
     try:
         demand = _normalize_forecast(demand_daily)
@@ -574,6 +778,16 @@ def _safe_days(qty: Any, demand_daily: Any) -> float | None:
         return round(float(qty or 0) / demand, 2)
     except (TypeError, ValueError):
         return None
+
+
+def _safe_ratio(numerator: Any, denominator: Any) -> float:
+    try:
+        total = float(denominator or 0)
+        if total <= 0:
+            return 0.0
+        return round(float(numerator or 0) / total, 4)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _normalize_forecast(value: Any) -> float:
