@@ -25,11 +25,20 @@ class InventoryReportService:
     def list_reports(self, run_id: str) -> list[ReportRow]:
         return self.repository.list_reports(run_id)
 
+    def list_product_level_reports(self, run_id: str) -> list[ReportRow]:
+        return self.repository.list_product_level_reports(run_id)
+
     def get_report(self, report_id: str) -> ReportDetail:
         return self.repository.get_report(report_id)
 
+    def get_product_level_report(self, report_id: str) -> ReportDetail:
+        return self.repository.get_product_level_report(report_id)
+
     def get_diagnosis(self, report_id: str) -> dict[str, object]:
         return self.repository.get_diagnosis(report_id)
+
+    def get_product_level_diagnosis(self, report_id: str) -> dict[str, object]:
+        return self.repository.get_product_level_diagnosis(report_id)
 
     def list_exceptions(self, run_id: str) -> list[ExceptionRow]:
         return self.repository.list_exceptions(run_id)

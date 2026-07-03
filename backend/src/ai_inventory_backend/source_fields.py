@@ -5,6 +5,7 @@ SOURCE_FIELD_MAP = {
     "product_name": "产品名称",
     "owner": "归属",
     "spu": "spu",
+    "product_level": "产品层级",
     "department_name": "部门名称",
     "category": "类目",
     "region": "区域",

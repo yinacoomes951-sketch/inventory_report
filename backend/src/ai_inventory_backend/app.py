@@ -44,13 +44,34 @@ def create_app() -> FastAPI:
     def list_reports(run_id: str, service: InventoryReportService = Depends(get_service)) -> list[ReportRow]:
         return service.list_reports(run_id)
 
+    @app.get("/api/product-level-inventory-runs/{run_id}/reports", response_model=list[ReportRow])
+    def list_product_level_reports(
+        run_id: str,
+        service: InventoryReportService = Depends(get_service),
+    ) -> list[ReportRow]:
+        return service.list_product_level_reports(run_id)
+
     @app.get("/api/inventory-reports/{report_id}", response_model=ReportDetail)
     def get_report(report_id: str, service: InventoryReportService = Depends(get_service)) -> ReportDetail:
         return service.get_report(report_id)
 
+    @app.get("/api/product-level-inventory-reports/{report_id}", response_model=ReportDetail)
+    def get_product_level_report(
+        report_id: str,
+        service: InventoryReportService = Depends(get_service),
+    ) -> ReportDetail:
+        return service.get_product_level_report(report_id)
+
     @app.get("/api/inventory-reports/{report_id}/diagnosis")
     def get_report_diagnosis(report_id: str, service: InventoryReportService = Depends(get_service)) -> dict[str, object]:
         return service.get_diagnosis(report_id)
+
+    @app.get("/api/product-level-inventory-reports/{report_id}/diagnosis")
+    def get_product_level_report_diagnosis(
+        report_id: str,
+        service: InventoryReportService = Depends(get_service),
+    ) -> dict[str, object]:
+        return service.get_product_level_diagnosis(report_id)
 
     @app.get("/api/inventory-runs/{run_id}/exceptions", response_model=list[ExceptionRow])
     def list_exceptions(run_id: str, service: InventoryReportService = Depends(get_service)) -> list[ExceptionRow]:
