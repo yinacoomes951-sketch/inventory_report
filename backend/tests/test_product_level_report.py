@@ -203,6 +203,15 @@ def test_product_level_report_renderer_contains_expected_sections_without_remove
     assert 'class="pl-bar-value"' in source
     assert "100.0%" in source
     assert "库存占比" in source
+    assert "库存集中度" in source
+    assert "365天以上长库龄集中度" in source
+    assert source.index("库存集中度") < source.index("365天以上长库龄集中度")
+    assert source.index("未分级库存") < source.index("未分级长库龄")
+    assert ".pl-table-wrap{overflow-x:hidden" in source
+    assert ".pl-table-wrap table{width:100%;table-layout:fixed" in source
+    assert "font-size:12.5px" in source
+    assert ".pl-table-wrap th{background:#f9fafb;color:#667085;font-weight:700;white-space:nowrap" in source
+    assert ".pl-table-wrap th:nth-child(10),.pl-table-wrap td:nth-child(10){width:15%}" in source
     assert "层级诊断明细" in source
     assert "行动清单" in source
     assert "未分级" in source

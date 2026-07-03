@@ -131,12 +131,22 @@ def _render_level_card(row: dict[str, Any], total_inventory: float) -> str:
 def _render_concentration(levels: list[dict[str, Any]]) -> str:
     max_inventory = max([float(row.get("total_inventory") or 0) for row in levels] or [1])
     max_aged = max([float(row.get("aged_365_qty") or 0) for row in levels] or [1])
-    rows = []
+    inventory_rows = []
+    aged_rows = []
     for row in levels:
         class_name = _tag_class(row.get("stocking_label"))
-        rows.append(_bar_row(f'{row.get("product_level")}库存', row.get("total_inventory"), max_inventory, class_name))
-        rows.append(_bar_row(f'{row.get("product_level")}长库龄', row.get("aged_365_qty"), max_aged, "muted"))
-    return f'<article class="pl-panel"><h3>库存和长库龄集中度</h3>{"".join(rows)}</article>'
+        inventory_rows.append(
+            _bar_row(f'{row.get("product_level")}库存', row.get("total_inventory"), max_inventory, class_name)
+        )
+        aged_rows.append(_bar_row(f'{row.get("product_level")}长库龄', row.get("aged_365_qty"), max_aged, "muted"))
+    return (
+        '<article class="pl-panel"><h3>库存和长库龄集中度</h3>'
+        '<h4>库存集中度</h4>'
+        f'{"".join(inventory_rows)}'
+        '<h4>365天以上长库龄集中度</h4>'
+        f'{"".join(aged_rows)}'
+        "</article>"
+    )
 
 
 def _render_aging(rows: list[dict[str, Any]]) -> str:
@@ -278,7 +288,7 @@ def _style() -> str:
 .pl-badge-row{display:flex;flex-wrap:wrap;gap:6px}.pl-tag{display:inline-flex;align-items:center;min-height:24px;border-radius:999px;padding:3px 8px;font-size:12px;font-weight:700}.pl-tag.normal{background:#edf6f0;color:#4f7d61}.pl-tag.short{background:#f8ebe9;color:#a84f45}.pl-tag.excess{background:#fbf2df;color:#9a6b20}.pl-tag.muted{background:#f3f4f6;color:#667085}
 .pl-level-card dl{display:grid;gap:7px;margin:12px 0}.pl-level-card dl div{display:flex;justify-content:space-between;border-bottom:1px solid #edf0f3}.pl-level-card dt{color:#667085}.pl-level-card dd{margin:0;font-weight:700}.pl-level-card p{margin:10px 0 0;color:#667085}
 .pl-bar-row{display:grid;grid-template-columns:120px minmax(0,1fr)90px;gap:10px;align-items:center;margin:9px 0;font-size:13px}.pl-track{height:10px;border-radius:999px;background:#edf1f5;overflow:hidden}.pl-track i{display:block;height:100%;background:#2f6690}.pl-track i.normal{background:#4f7d61}.pl-track i.short{background:#a84f45}.pl-track i.excess{background:#9a6b20}.pl-track i.muted{background:#9ca3af}.pl-bar-value{text-align:right}.pl-bar-value strong{display:block}.pl-bar-value small{display:block;color:#9ca3af;font-size:12px;line-height:1.2}
-.pl-table-wrap{overflow-x:auto;border:1px solid #e5e7eb;border-radius:8px}.pl-table-wrap table{width:100%;min-width:1120px;border-collapse:collapse;background:#fff}.pl-table-wrap th,.pl-table-wrap td{padding:10px 9px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top}.pl-table-wrap th{background:#f9fafb;color:#667085;font-weight:700}.num{text-align:right;white-space:nowrap}.pl-action-card{border-top:4px solid #2f6690}.pl-action-card.risk{border-top-color:#a84f45}.pl-action-card.warn{border-top-color:#9a6b20}.pl-action-card ul{margin:0;padding-left:18px}.pl-note{margin:18px 0 0;padding:12px;border-radius:8px;background:#f9fafb;color:#667085;font-size:13px}
+.pl-table-wrap{overflow-x:hidden;border:1px solid #e5e7eb;border-radius:8px}.pl-table-wrap table{width:100%;table-layout:fixed;border-collapse:collapse;background:#fff;font-size:12.5px}.pl-table-wrap th,.pl-table-wrap td{padding:7px 6px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top;overflow-wrap:anywhere}.pl-table-wrap th{background:#f9fafb;color:#667085;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:clip}.pl-table-wrap th:nth-child(1),.pl-table-wrap td:nth-child(1){width:7.5%}.pl-table-wrap th:nth-child(2),.pl-table-wrap td:nth-child(2),.pl-table-wrap th:nth-child(3),.pl-table-wrap td:nth-child(3){width:7.5%}.pl-table-wrap th:nth-child(4),.pl-table-wrap td:nth-child(4),.pl-table-wrap th:nth-child(5),.pl-table-wrap td:nth-child(5),.pl-table-wrap th:nth-child(6),.pl-table-wrap td:nth-child(6),.pl-table-wrap th:nth-child(7),.pl-table-wrap td:nth-child(7),.pl-table-wrap th:nth-child(8),.pl-table-wrap td:nth-child(8),.pl-table-wrap th:nth-child(9),.pl-table-wrap td:nth-child(9){width:8%}.pl-table-wrap th:nth-child(10),.pl-table-wrap td:nth-child(10){width:15%}.pl-table-wrap th:nth-child(11),.pl-table-wrap td:nth-child(11){width:17.5%}.num{text-align:right;white-space:nowrap}.pl-action-card{border-top:4px solid #2f6690}.pl-action-card.risk{border-top-color:#a84f45}.pl-action-card.warn{border-top-color:#9a6b20}.pl-action-card ul{margin:0;padding-left:18px}.pl-note{margin:18px 0 0;padding:12px;border-radius:8px;background:#f9fafb;color:#667085;font-size:13px}
 @media(max-width:980px){.pl-header,.pl-hero,.pl-dashboard-grid,.pl-action-grid{grid-template-columns:1fr}.pl-meta{justify-content:flex-start}.pl-level-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:640px){.product-level-report{padding:12px}.pl-content,.pl-header{padding-left:14px;padding-right:14px}.pl-level-grid{grid-template-columns:1fr}}
 """.strip()

@@ -500,3 +500,101 @@ git diff -- backend\src\ai_inventory_backend\diagnosis.py backend\src\ai_invento
 
 ### 评审结论
 通过。
+
+## 2026-07-03 产品层级集中度图表分组展示
+
+### 任务目标
+调整产品层级诊断报告中“库存和长库龄集中度”的展示语义，将库存集中度和 365 天以上长库龄集中度分组展示，避免按产品层级交替展示导致读者误解。
+
+### 修改文件
+- `backend/src/ai_inventory_backend/product_level_report_renderer.py`
+- `backend/tests/test_product_level_report.py`
+
+### 修改内容
+- 产品层级报告渲染器中，先集中展示各产品层级库存条，再集中展示各产品层级 365 天以上长库龄条。
+- 增加“库存集中度”和“365天以上长库龄集中度”两个分组标题。
+- 补充产品层级报告渲染测试，断言库存分组先于长库龄分组。
+
+### 未修改范围
+- 未修改接口入参、接口返回结构和诊断 JSON 契约。
+- 未修改 SQL、数据库结构、产品层级聚合逻辑和标签判断逻辑。
+- 未修改原 SPU/SKU 诊断报告。
+- 未新增依赖，未修改 lock 文件。
+- 未处理工作区中本次修改前已存在的 `.gitignore` 变更。
+
+### 验证方式
+在 Conda 环境 `inventory_report` 中显式设置 UTF-8、`PYTHONPATH=backend\src` 和 `AI_INVENTORY_USE_MOCK_DATA=true` 后运行产品层级报告测试：
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'; $env:PYTHONUTF8='1'; $env:PYTHONPATH='backend\src'; $env:AI_INVENTORY_USE_MOCK_DATA='true'; conda run -n inventory_report pytest -p no:cacheprovider backend/tests/test_product_level_report.py
+```
+
+同时检查本次修改文件的 diff 空白格式：
+
+```powershell
+git diff --check -- backend\src\ai_inventory_backend\product_level_report_renderer.py backend\tests\test_product_level_report.py
+```
+
+### 验证结论
+已实际运行并通过。
+
+- 产品层级报告测试结果：`7 passed in 0.99s`。
+- `git diff --check` 对本次两个修改文件无输出。
+- 对抗式审查确认本次只涉及 HTML 渲染顺序和测试断言，不涉及接口、SQL、数据库、依赖和 SPU/SKU 报告。
+
+### 风险点
+- 新增分组标题需要人工确认业务表述是否符合报表阅读习惯。
+- 未进行真实浏览器截图验证，仍建议人工查看产品层级报告中的图表分组视觉效果。
+
+### 评审结论
+通过。
+
+## 2026-07-03 产品层级诊断明细表格样式优化
+
+### 任务目标
+优化产品层级诊断报告“层级诊断明细”表格展示，缩小字号、调整列宽、尽量保证表头不换行，并按确认后的要求去掉表格横向滚动条。
+
+### 修改文件
+- `backend/src/ai_inventory_backend/product_level_report_renderer.py`
+- `backend/tests/test_product_level_report.py`
+
+### 修改内容
+- 将“层级诊断明细”表格字号调整为 `12.5px`，压缩单元格内边距。
+- 表格改为 `width:100%` 与 `table-layout:fixed`，外层使用 `overflow-x:hidden`，避免出现横向滚动条。
+- 为 11 个明细列设置比例列宽，保留“先查什么”和“建议动作”两列相对更宽。
+- 表头保留 `white-space:nowrap`，正文长文本允许换行，避免撑出横向滚动。
+- 补充产品层级报告渲染测试，断言表格无横向滚动、小字号、固定布局和关键列宽样式进入 HTML。
+
+### 未修改范围
+- 未修改接口入参、接口返回结构和诊断 JSON 契约。
+- 未修改 SQL、数据库结构、产品层级聚合逻辑和标签判断逻辑。
+- 未修改原 SPU/SKU 诊断报告。
+- 未新增依赖，未修改 lock 文件。
+- 未处理工作区中本次修改前已存在的 `.gitignore` 变更。
+
+### 验证方式
+在 Conda 环境 `inventory_report` 中显式设置 UTF-8、`PYTHONPATH=backend\src` 和 `AI_INVENTORY_USE_MOCK_DATA=true` 后运行产品层级报告测试：
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'; $env:PYTHONUTF8='1'; $env:PYTHONPATH='backend\src'; $env:AI_INVENTORY_USE_MOCK_DATA='true'; conda run -n inventory_report pytest -p no:cacheprovider backend\tests\test_product_level_report.py
+```
+
+同时检查本次修改文件的 diff 空白格式：
+
+```powershell
+git diff --check -- backend\src\ai_inventory_backend\product_level_report_renderer.py backend\tests\test_product_level_report.py
+```
+
+### 验证结论
+已实际运行并通过。
+
+- 产品层级报告测试结果：`7 passed in 0.88s`。
+- `git diff --check` 对本次两个修改文件无输出。
+- 已按人工确认完成修改并通过验证。
+
+### 风险点
+- 无横向滚动条与表头尽量不换行存在天然冲突；当前实现优先满足“不要有滚动条”，极窄容器下表头可能被裁切。
+- 未进行真实浏览器截图验证，仍建议人工查看产品层级报告中的表格密度和长文本换行效果。
+
+### 评审结论
+通过。
