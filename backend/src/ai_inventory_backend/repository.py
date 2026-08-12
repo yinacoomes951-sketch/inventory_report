@@ -16,6 +16,7 @@ from .llm_report import InventoryLlmReportEnhancer
 from .mock_data import EXCEPTIONS, REPORT_DETAIL, REPORTS, RUNS, SUMMARY
 from .product_level_diagnosis import ProductLevelDiagnosisEngine
 from .product_level_report_renderer import ProductLevelReportRenderer
+from .report_scopes import DEFAULT_DEPARTMENT_REPORT_NAMES
 from .report_renderer import InventoryReportRenderer
 from .schemas import ExceptionRow, InventoryRun, ReportDetail, ReportRow, RunSummary
 from .source_fields import REQUIRED_SOURCE_FIELDS, SOURCE_TABLE
@@ -312,7 +313,6 @@ class InventoryRepository:
 
     def _build_scopes(self, batch: dict[str, Any]) -> list[RoleScope]:
         owner = self._top_dimension(batch, "归属")
-        department = self._top_dimension(batch, "部门名称")
         scopes = [
             RoleScope(
                 id=f"real-owner-{_slug(owner)}",
@@ -321,17 +321,20 @@ class InventoryRepository:
                 where_sql='and "归属" = :owner',
                 params={"owner": owner},
             ),
-            RoleScope(
-                id=f"real-department-{_slug(department)}",
-                level="战队/部门",
-                object_name=department,
-                where_sql='and "部门名称" = :department',
-                params={"department": department},
-            ),
+            *[
+                RoleScope(
+                    id=f"real-department-{_slug(department)}",
+                    level="战队/部门",
+                    object_name=department,
+                    where_sql='and "部门名称" = :department',
+                    params={"department": department},
+                )
+                for department in DEFAULT_DEPARTMENT_REPORT_NAMES
+            ],
             RoleScope(
                 id="real-director-all",
                 level="运营总监",
-                object_name="运营总监视角（全量）",
+                object_name="运营中心总监",
                 where_sql="",
                 params={},
             ),

@@ -198,6 +198,7 @@ def test_product_level_report_renderer_contains_expected_sections_without_remove
         )
     )
 
+    assert "产品层级以SPU维度进行分级" in source
     assert "产品层级判断" in source
     assert "display:inline-flex;align-items:center;justify-content:center;min-height:26px" in source
     assert 'class="pl-bar-value"' in source
@@ -226,8 +227,10 @@ def test_product_level_report_renderer_contains_expected_sections_without_remove
 def test_product_level_api_contracts_do_not_replace_spu_report_api():
     reports = client.get("/api/product-level-inventory-runs/latest/reports")
     assert reports.status_code == 200
-    first_report = reports.json()[0]
+    product_level_rows = reports.json()
+    first_report = product_level_rows[0]
     assert first_report["id"].startswith("product-level-")
+    assert len(product_level_rows) == 10
 
     detail = client.get(f"/api/product-level-inventory-reports/{first_report['id']}")
     assert detail.status_code == 200
@@ -240,7 +243,12 @@ def test_product_level_api_contracts_do_not_replace_spu_report_api():
 
     spu_reports = client.get("/api/inventory-runs/latest/reports")
     assert spu_reports.status_code == 200
-    assert not spu_reports.json()[0]["id"].startswith("product-level-")
+    spu_rows = spu_reports.json()
+    assert len(spu_rows) == 10
+    assert not spu_rows[0]["id"].startswith("product-level-")
+    assert [row["objectName"].removesuffix("产品层级") for row in product_level_rows] == [
+        row["objectName"] for row in spu_rows
+    ]
 
 
 def test_export_product_level_html_page_wraps_report_content():

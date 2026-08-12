@@ -20,7 +20,7 @@ class ProductLevelReportRenderer:
     <header class="pl-header">
       <div>
         <h1>产品层级库存诊断报告</h1>
-        <p>从产品层级识别备货与发货标签，定位优先排查方向。</p>
+        <p>从产品层级识别备货与发货标签，定位优先排查方向。产品层级以SPU维度进行分级。</p>
       </div>
       <div class="pl-meta">
         <span>口径：产品层级</span>
