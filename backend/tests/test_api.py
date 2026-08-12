@@ -20,6 +20,7 @@ def test_latest_summary_contains_required_monitor_metrics():
     assert response.status_code == 200
     data = response.json()
     assert data["latestBatch"] == "2026-W23"
+    assert data["reportCount"] == 10
     assert "pushSuccessRate" in data
     assert "clickRate" in data
     assert "exceptionCount" in data
@@ -28,13 +29,26 @@ def test_latest_summary_contains_required_monitor_metrics():
 def test_runs_reports_exceptions_and_detail_contracts():
     runs = client.get("/api/inventory-runs")
     assert runs.status_code == 200
+    assert runs.json()[0]["reportCount"] == 10
     run_id = runs.json()[0]["id"]
 
     reports = client.get(f"/api/inventory-runs/{run_id}/reports")
     assert reports.status_code == 200
-    first_report = reports.json()[0]
+    report_rows = reports.json()
+    first_report = report_rows[0]
     assert first_report["objectName"] == "张三"
     assert first_report["pushStatus"] == "success"
+    assert len(report_rows) == 10
+    assert [row["objectName"] for row in report_rows if row["level"] == "战队/部门"] == [
+        "AMZ_熠掷乾坤战队",
+        "AMZ_星光熠熠战队",
+        "AMZ_熠兴遄飞战队",
+        "AMZ_熠兴熠亿战队",
+        "AMZ_熠绝风华战队",
+        "AMZ_熠展鸿图战队",
+        "AMZ_熠启未来战队",
+        "AMZ_如虎添熠战队",
+    ]
 
     detail = client.get(f"/api/inventory-reports/{first_report['id']}")
     assert detail.status_code == 200

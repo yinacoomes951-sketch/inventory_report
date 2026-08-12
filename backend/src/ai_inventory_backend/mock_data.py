@@ -1,9 +1,10 @@
+from .report_scopes import DEFAULT_DEPARTMENT_REPORT_NAMES
 from .schemas import ExceptionRow, InventoryRun, ReportDetail, ReportRow, RunSummary
 
 
 SUMMARY = RunSummary(
     latestBatch="2026-W23",
-    reportCount=86,
+    reportCount=10,
     pushSuccessRate=96.5,
     clickRate=71.3,
     exceptionCount=3,
@@ -16,7 +17,7 @@ RUNS = [
         startedAt="2026-06-01 09:00",
         finishedAt="2026-06-01 09:18",
         status="completed",
-        reportCount=86,
+        reportCount=10,
         pushSuccessRate=96.5,
         clickRate=71.3,
         exceptionCount=3,
@@ -56,16 +57,19 @@ REPORTS = [
         clickCount=4,
         lastClickedAt="2026-06-01 10:32",
     ),
-    ReportRow(
-        id="report-dept-home",
-        objectName="家居战队",
-        level="战队/部门",
-        reportStatus="generated",
-        pushStatus="success",
-        clickStatus="not_clicked",
-        clickCount=0,
-        lastClickedAt=None,
-    ),
+    *[
+        ReportRow(
+            id=f"report-department-{index}",
+            objectName=department,
+            level="战队/部门",
+            reportStatus="generated",
+            pushStatus="success",
+            clickStatus="not_clicked",
+            clickCount=0,
+            lastClickedAt=None,
+        )
+        for index, department in enumerate(DEFAULT_DEPARTMENT_REPORT_NAMES, start=1)
+    ],
     ReportRow(
         id="report-director-a",
         objectName="运营总监A",

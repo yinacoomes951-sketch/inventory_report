@@ -198,11 +198,21 @@ def test_product_level_report_renderer_contains_expected_sections_without_remove
         )
     )
 
+    assert "产品层级以SPU维度进行分级" in source
     assert "产品层级判断" in source
     assert "display:inline-flex;align-items:center;justify-content:center;min-height:26px" in source
     assert 'class="pl-bar-value"' in source
     assert "100.0%" in source
     assert "库存占比" in source
+    assert "库存集中度" in source
+    assert "365天以上长库龄集中度" in source
+    assert source.index("库存集中度") < source.index("365天以上长库龄集中度")
+    assert source.index("未分级库存") < source.index("未分级长库龄")
+    assert ".pl-table-wrap{overflow-x:hidden" in source
+    assert ".pl-table-wrap table{width:100%;table-layout:fixed" in source
+    assert "font-size:12.5px" in source
+    assert ".pl-table-wrap th{background:#f9fafb;color:#667085;font-weight:700;white-space:nowrap" in source
+    assert ".pl-table-wrap th:nth-child(10),.pl-table-wrap td:nth-child(10){width:15%}" in source
     assert "层级诊断明细" in source
     assert "行动清单" in source
     assert "未分级" in source
@@ -217,8 +227,10 @@ def test_product_level_report_renderer_contains_expected_sections_without_remove
 def test_product_level_api_contracts_do_not_replace_spu_report_api():
     reports = client.get("/api/product-level-inventory-runs/latest/reports")
     assert reports.status_code == 200
-    first_report = reports.json()[0]
+    product_level_rows = reports.json()
+    first_report = product_level_rows[0]
     assert first_report["id"].startswith("product-level-")
+    assert len(product_level_rows) == 10
 
     detail = client.get(f"/api/product-level-inventory-reports/{first_report['id']}")
     assert detail.status_code == 200
@@ -231,7 +243,12 @@ def test_product_level_api_contracts_do_not_replace_spu_report_api():
 
     spu_reports = client.get("/api/inventory-runs/latest/reports")
     assert spu_reports.status_code == 200
-    assert not spu_reports.json()[0]["id"].startswith("product-level-")
+    spu_rows = spu_reports.json()
+    assert len(spu_rows) == 10
+    assert not spu_rows[0]["id"].startswith("product-level-")
+    assert [row["objectName"].removesuffix("产品层级") for row in product_level_rows] == [
+        row["objectName"] for row in spu_rows
+    ]
 
 
 def test_export_product_level_html_page_wraps_report_content():

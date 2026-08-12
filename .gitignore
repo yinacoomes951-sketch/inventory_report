@@ -18,3 +18,9 @@ local_data/
 .vscode/
 .DS_Store
 Thumbs.db
+
+## 排除AI相关产物
+outputs/
+codex_docs/
+.ai_tmp/
+.trae/

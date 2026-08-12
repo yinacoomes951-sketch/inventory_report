@@ -59,6 +59,38 @@ def _scope(where_sql="", params=None):
     )
 
 
+def test_build_scopes_includes_all_fixed_departments_for_both_report_families():
+    repository = object.__new__(InventoryRepository)
+    requested_dimensions = []
+
+    def top_dimension(batch, column):
+        requested_dimensions.append(column)
+        return "张三"
+
+    repository._top_dimension = top_dimension
+
+    scopes = repository._build_scopes({"insert_time": "2026-07-14"})
+    department_scopes = [scope for scope in scopes if scope.level == "战队/部门"]
+
+    assert requested_dimensions == ["归属"]
+    assert len(scopes) == 10
+    assert [scope.object_name for scope in department_scopes] == [
+        "AMZ_熠掷乾坤战队",
+        "AMZ_星光熠熠战队",
+        "AMZ_熠兴遄飞战队",
+        "AMZ_熠兴熠亿战队",
+        "AMZ_熠绝风华战队",
+        "AMZ_熠展鸿图战队",
+        "AMZ_熠启未来战队",
+        "AMZ_如虎添熠战队",
+    ]
+    assert all(scope.where_sql == 'and "部门名称" = :department' for scope in department_scopes)
+    assert [scope.params for scope in department_scopes] == [
+        {"department": scope.object_name} for scope in department_scopes
+    ]
+    assert len({scope.id for scope in scopes}) == len(scopes)
+
+
 def test_report_inventory_cte_filters_after_role_scope_and_spu_aggregation():
     sql = _report_inventory_cte(_scope('and "归属" = :owner', {"owner": "张三"}))
 
